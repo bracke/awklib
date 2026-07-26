@@ -1,0 +1,27 @@
+name = "awklib"
+description = "AWK interpreter library in Ada, backed by the regexp engine"
+version = "0.1.0"
+
+authors = ["Bent Bracke"]
+maintainers = ["Bent Bracke <bent@bracke.dk>"]
+maintainers-logins = ["bracke"]
+licenses = "MIT OR Apache-2.0 WITH LLVM-exception"
+website = "https://github.com/bracke/awklib"
+tags = ["ada", "awk", "interpreter", "text-processing"]
+project-files = ["awklib.gpr"]
+
+[[depends-on]]
+gnat_native = "=15.2.1"
+
+[[depends-on]]
+regexp = "*"
+
+[[pins]]
+regexp = { path = "../regexp" }
+
+[build-profiles]
+"*" = "development"
+
+[[actions]]
+type = "test"
+command = ["sh", "-c", "cd tests && alr build --development && ./bin/awklib_tests"]

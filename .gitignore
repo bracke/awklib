@@ -1,0 +1,15 @@
+# Alire-generated local state
+/alire/
+/config/
+
+# Build outputs
+/obj/
+/lib/
+
+# Test crate generated state and build outputs
+/tests/alire/
+/tests/config/
+/tests/obj/
+/tests/bin/
+/cli/obj/
+/cli/bin/
