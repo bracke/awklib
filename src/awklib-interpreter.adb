@@ -24,6 +24,7 @@ package body Awklib.Interpreter is
    use type A.Assign_Op;
    use type A.Redirect_Kind;
    use type A.Pattern_Kind;
+   use type A.Getline_Source;
    use type Awklib.Parser.Result_Status;
 
    package LF_Math is new Ada.Numerics.Generic_Elementary_Functions (Long_Float);
@@ -88,6 +89,22 @@ package body Awklib.Interpreter is
 
    Records    : Ustr_Vectors.Vector;
    Main_Index : Natural := 0;
+
+   --  getline < file: caller-provided file contents and per-file read cursors.
+   package Content_Maps is new Ada.Containers.Indefinite_Hashed_Maps
+     (Key_Type => String, Element_Type => Unbounded_String,
+      Hash => Ada.Strings.Hash, Equivalent_Keys => "=");
+   type File_Cursor is record
+      Lines  : Ustr_Vectors.Vector;
+      Index  : Natural := 0;
+      Loaded : Boolean := False;
+   end record;
+   type Cursor_Access is access File_Cursor;
+   package Cursor_Maps is new Ada.Containers.Indefinite_Hashed_Maps
+     (Key_Type => String, Element_Type => Cursor_Access,
+      Hash => Ada.Strings.Hash, Equivalent_Keys => "=");
+   Getline_Content : Content_Maps.Map;
+   Getline_Cursors : Cursor_Maps.Map;
 
    Out_Buf        : Unbounded_String;
    Truncated      : Str_Sets.Map;
@@ -382,6 +399,74 @@ package body Awklib.Interpreter is
          return Eval_Str (E);
       end if;
    end Regex_Text;
+
+   --  Split content into records on LF, dropping the trailing empty record a
+   --  terminating newline would otherwise produce (default RS behaviour).
+   function Split_Lines (S : String) return Ustr_Vectors.Vector is
+      Result : Ustr_Vectors.Vector;
+      Start  : Integer := S'First;
+   begin
+      if S'Length = 0 then
+         return Result;
+      end if;
+      for I in S'Range loop
+         if S (I) = ASCII.LF then
+            Result.Append (To_Unbounded_String (S (Start .. I - 1)));
+            Start := I + 1;
+         end if;
+      end loop;
+      if Start <= S'Last then
+         Result.Append (To_Unbounded_String (S (Start .. S'Last)));
+      end if;
+      return Result;
+   end Split_Lines;
+
+   --  Best-effort read of a real file's whole content (line-reconstructed).
+   function Try_Read_File (Path : String; Content : out Unbounded_String) return Boolean is
+      F : Ada.Text_IO.File_Type;
+   begin
+      Content := Null_Unbounded_String;
+      Ada.Text_IO.Open (F, Ada.Text_IO.In_File, Path);
+      while not Ada.Text_IO.End_Of_File (F) loop
+         Append (Content, Ada.Text_IO.Get_Line (F));
+         Append (Content, ASCII.LF);
+      end loop;
+      Ada.Text_IO.Close (F);
+      return True;
+   exception
+      when others => return False;
+   end Try_Read_File;
+
+   --  getline < File. Returns 1 on a record, 0 at EOF, -1 if the file is absent.
+   --  Caller-provided content wins; otherwise the real filesystem is tried.
+   function Getline_From_File (Name : String) return Integer is
+      C : Cursor_Access;
+   begin
+      if not Getline_Content.Contains (Name) then
+         declare
+            Content : Unbounded_String;
+         begin
+            if Try_Read_File (Name, Content) then
+               Getline_Content.Include (Name, Content);
+            else
+               return -1;
+            end if;
+         end;
+      end if;
+      if Getline_Cursors.Contains (Name) then
+         C := Getline_Cursors.Element (Name);
+      else
+         C := new File_Cursor;
+         C.Lines := Split_Lines (To_String (Getline_Content.Element (Name)));
+         C.Loaded := True;
+         Getline_Cursors.Insert (Name, C);
+      end if;
+      if C.Index >= Natural (C.Lines.Length) then
+         return 0;
+      end if;
+      C.Index := C.Index + 1;
+      return 1;   --  caller reads C at the new Index
+   end Getline_From_File;
 
    --  Lvalue get/set ----------------------------------------------------------
    function Get_Lvalue (Target : A.Expr_Access) return V.Value is
@@ -822,10 +907,29 @@ package body Awklib.Interpreter is
             return Eval_Builtin (E.B_Id, E.B_Args);
 
          when A.E_Getline =>
-            --  Only the `getline < file` form is exercised by the target
-            --  programs, and then only when guarded off. Return 0 (EOF) so any
-            --  such loop terminates; other forms are unsupported.
-            return V.To_Value (V.Number (0));
+            if E.GL_Source = A.G_File then
+               declare
+                  Name    : constant String := Eval_Str (E.GL_Arg);
+                  Outcome : constant Integer := Getline_From_File (Name);
+               begin
+                  if Outcome = 1 then
+                     declare
+                        C    : constant Cursor_Access := Getline_Cursors.Element (Name);
+                        Line : constant String := To_String (C.Lines.Element (C.Index));
+                     begin
+                        if E.GL_Var /= null then
+                           Set_Lvalue (E.GL_Var, V.Make_Strnum (Line));
+                        else
+                           Set_Record (Line);
+                        end if;
+                     end;
+                  end if;
+                  return V.To_Value (V.Number (Outcome));
+               end;
+            else
+               --  Main-stream and command getline are not supported.
+               return V.To_Value (V.Number (0));
+            end if;
       end case;
    end Eval;
 
@@ -1102,7 +1206,9 @@ package body Awklib.Interpreter is
       Output         : out U.Unbounded_String;
       Exit_Code      : out Integer;
       Status         : out Run_Status;
-      Message        : out U.Unbounded_String)
+      Message        : out U.Unbounded_String;
+      Files          : Assignment_Vectors.Vector := Assignment_Vectors.Empty_Vector;
+      Input_Files    : Assignment_Vectors.Vector := Assignment_Vectors.Empty_Vector)
    is
       Parse_Status : Awklib.Parser.Result_Status;
       Parse_Msg    : Unbounded_String;
@@ -1116,6 +1222,11 @@ package body Awklib.Interpreter is
       Fields.Clear;
       Records.Clear;
       Truncated.Clear;
+      Getline_Content.Clear;
+      Getline_Cursors.Clear;
+      for F of Files loop
+         Getline_Content.Include (To_String (F.Name), F.Value);
+      end loop;
       Field0 := Null_Unbounded_String;
       NF_Val := 0;
       Main_Index := 0;
@@ -1180,66 +1291,90 @@ package body Awklib.Interpreter is
          end if;
       end loop;
 
-      --  Main record loop.
+      --  Main record loop -- multi-file: FILENAME and FNR reset per file, NR
+      --  runs continuously, range-pattern state (Range_Active) spans the run.
       if Has_Main_Or_End and then not Exiting and then not Runtime_Failed then
-         Split_Records (Input);
-         while Main_Index < Natural (Records.Length) and then not Exiting
-           and then not Runtime_Failed
-         loop
-            Main_Index := Main_Index + 1;
-            Set_Record (To_String (Records.Element (Main_Index)));
-            Set_Scalar ("NR", V.To_Value (V.Number (Main_Index)));
-            Set_Scalar ("FNR", V.To_Value (V.Number (Main_Index)));
+         declare
+            NR_Count : Natural := 0;
 
-            declare
-               Idx : Natural := 0;
+            procedure Process_File (FName : String; Content : String) is
+               Recs        : constant Ustr_Vectors.Vector := Split_Lines (Content);
+               FNR_Count   : Natural := 0;
+               Do_Nextfile : Boolean := False;
             begin
-               for R of Prog.Rules loop
-                  exit when Exiting or else Runtime_Failed;
-                  if R.Pat /= A.P_Begin and then R.Pat /= A.P_End then
-                     Idx := Idx + 1;
-                     declare
-                        Fire : Boolean := False;
-                     begin
-                        case R.Pat is
-                           when A.P_Always =>
-                              Fire := True;
-                           when A.P_Expr =>
-                              Fire := V.Is_True (Eval (R.Expr1));
-                           when A.P_Range =>
-                              if Idx <= Range_Active'Last then
-                                 if not Range_Active (Idx) then
-                                    if V.Is_True (Eval (R.Expr1)) then
-                                       Range_Active (Idx) := True;
-                                       Fire := True;
-                                       if V.Is_True (Eval (R.Expr2)) then
-                                          Range_Active (Idx) := False;
+               Set_Scalar ("FILENAME", V.To_Value (FName));
+               for RI in 1 .. Natural (Recs.Length) loop
+                  exit when Exiting or else Runtime_Failed or else Do_Nextfile;
+                  NR_Count := NR_Count + 1;
+                  FNR_Count := FNR_Count + 1;
+                  Set_Record (To_String (Recs.Element (RI)));
+                  Set_Scalar ("NR", V.To_Value (V.Number (NR_Count)));
+                  Set_Scalar ("FNR", V.To_Value (V.Number (FNR_Count)));
+
+                  declare
+                     Idx : Natural := 0;
+                  begin
+                     for R of Prog.Rules loop
+                        exit when Exiting or else Runtime_Failed;
+                        if R.Pat /= A.P_Begin and then R.Pat /= A.P_End then
+                           Idx := Idx + 1;
+                           declare
+                              Fire : Boolean := False;
+                           begin
+                              case R.Pat is
+                                 when A.P_Always =>
+                                    Fire := True;
+                                 when A.P_Expr =>
+                                    Fire := V.Is_True (Eval (R.Expr1));
+                                 when A.P_Range =>
+                                    if Idx <= Range_Active'Last then
+                                       if not Range_Active (Idx) then
+                                          if V.Is_True (Eval (R.Expr1)) then
+                                             Range_Active (Idx) := True;
+                                             Fire := True;
+                                             if V.Is_True (Eval (R.Expr2)) then
+                                                Range_Active (Idx) := False;
+                                             end if;
+                                          end if;
+                                       else
+                                          Fire := True;
+                                          if V.Is_True (Eval (R.Expr2)) then
+                                             Range_Active (Idx) := False;
+                                          end if;
                                        end if;
                                     end if;
-                                 else
-                                    Fire := True;
-                                    if V.Is_True (Eval (R.Expr2)) then
-                                       Range_Active (Idx) := False;
-                                    end if;
-                                 end if;
-                              end if;
-                           when others => null;
-                        end case;
+                                 when others => null;
+                              end case;
 
-                        if Fire then
-                           declare
-                              F : Flow;
-                           begin
-                              Run_Action (R, F);
-                              exit when F = Flow_Next or else F = Flow_Nextfile;
-                              --  Flow_Exit handled by the Exiting flag.
+                              if Fire then
+                                 declare
+                                    F : Flow;
+                                 begin
+                                    Run_Action (R, F);
+                                    if F = Flow_Nextfile then
+                                       Do_Nextfile := True;
+                                       exit;
+                                    elsif F = Flow_Next then
+                                       exit;
+                                    end if;
+                                 end;
+                              end if;
                            end;
                         end if;
-                     end;
-                  end if;
+                     end loop;
+                  end;
                end loop;
-            end;
-         end loop;
+            end Process_File;
+         begin
+            if Input_Files.Is_Empty then
+               Process_File (Filename, Input);
+            else
+               for F of Input_Files loop
+                  exit when Exiting or else Runtime_Failed;
+                  Process_File (To_String (F.Name), To_String (F.Value));
+               end loop;
+            end if;
+         end;
       end if;
 
       --  END rules (run once, even after exit, unless a runtime error).

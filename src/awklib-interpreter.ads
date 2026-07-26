@@ -26,7 +26,17 @@ package Awklib.Interpreter is
       Output         : out U.Unbounded_String;
       Exit_Code      : out Integer;
       Status         : out Run_Status;
-      Message        : out U.Unbounded_String);
+      Message        : out U.Unbounded_String;
+      Files          : Assignment_Vectors.Vector := Assignment_Vectors.Empty_Vector;
+      Input_Files    : Assignment_Vectors.Vector := Assignment_Vectors.Empty_Vector);
+   --  Files provides the content of named files for `getline < name`: each
+   --  entry maps a filename to its full text. A getline from a name absent
+   --  here returns -1 (open failure), as AWK would for a missing file.
+   --
+   --  Input_Files, when non-empty, supplies the main input as an ordered list
+   --  of (FILENAME, content) pairs instead of the single Input string: FILENAME
+   --  and FNR track each file the way multi-file AWK does, while NR runs
+   --  continuously. When empty, Input is treated as one file named Filename.
    --  Parse and run Program_Source. Input is the main record stream (split by
    --  RS, default newline). Assignments seed variables as strnums (like -v);
    --  Environment seeds ENVIRON[]. Filename sets FILENAME. Standard output is
