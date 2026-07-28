@@ -38,7 +38,9 @@ the concern, not the interpreter as a whole:
 
 - Match real AWK behaviour; when in doubt, check `awk`/`gawk` and add a test that pins the
   case. A new feature without a suite case is not done.
-- The interpreter is **not reentrant** (process-global state) — do not assume otherwise.
+- The interpreter is **reentrant**: interpreter and parser state is local to each
+  `Run`/`Parse` call; the only shared state is the compiled-regex cache, guarded by a
+  protected object. Keep it that way -- do not add package-level mutable state.
 - The known, deliberate divergence is regex discipline: `regexp` is backtracking
   (leftmost-first), not POSIX leftmost-longest. Don't "fix" that per-call; it is a
   property of the engine.

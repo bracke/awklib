@@ -3,7 +3,8 @@ package Awklib.Regex is
    --  matching (AWK's default, unlike regexp's) and a compile cache keyed by
    --  pattern text (dynamic regexes recur constantly over large inputs).
    --
-   --  Not reentrant: the cache is process-global.
+   --  The compiled-regex cache is process-global but guarded by a protected
+   --  object, so matching is safe to call from concurrent tasks.
 
    type Match is record
       Matched : Boolean := False;

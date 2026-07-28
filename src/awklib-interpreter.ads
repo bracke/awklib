@@ -3,7 +3,8 @@ with Ada.Strings.Unbounded;
 
 package Awklib.Interpreter is
    --  Runs an AWK program over an in-memory input and captures its standard
-   --  output. Not reentrant: interpreter state is process-global.
+   --  output. Reentrant: all interpreter state is local to a Run call, so
+   --  independent programs may run concurrently on separate tasks.
 
    package U renames Ada.Strings.Unbounded;
 

@@ -539,6 +539,46 @@ package body Awklib_Suite is
       Ada.Directories.Delete_File (Path);
    end Test_Redirect;
 
+   --  Reentrancy: many interpreter runs at once, each summing 1..Id. If Run kept
+   --  shared state the concurrent runs would corrupt one another's totals.
+   procedure Test_Reentrancy (T : in out AUnit.Test_Cases.Test_Case'Class) is
+      pragma Unreferenced (T);
+      N       : constant := 16;
+      Results : array (1 .. N) of U.Unbounded_String;
+
+      function Img (K : Integer) return String is
+         S : constant String := Integer'Image (K);
+      begin
+         return (if S (S'First) = ' ' then S (S'First + 1 .. S'Last) else S);
+      end Img;
+
+      task type Worker is
+         entry Go (Id : Integer);
+      end Worker;
+
+      task body Worker is
+         My : Integer;
+      begin
+         accept Go (Id : Integer) do
+            My := Id;
+         end Go;
+         Results (My) := U.To_Unbounded_String
+           (Awk ("BEGIN { s = 0; for (i = 1; i <= " & Img (My) & "; i++) s += i; print s }"));
+      end Worker;
+   begin
+      declare
+         W : array (1 .. N) of Worker;
+      begin
+         for K in 1 .. N loop
+            W (K).Go (K);
+         end loop;
+      end;  --  blocks until every worker terminates
+      for K in 1 .. N loop
+         Assert (U.To_String (Results (K)) = Img (K * (K + 1) / 2) & LF,
+                 "concurrent run" & Integer'Image (K) & " kept its own state");
+      end loop;
+   end Test_Reentrancy;
+
    type Awklib_Test_Case is new AUnit.Test_Cases.Test_Case with null record;
 
    overriding function Name (T : Awklib_Test_Case) return AUnit.Message_String;
@@ -595,6 +635,7 @@ package body Awklib_Suite is
       Register_Routine (T, Test_Escapes'Access, "string escapes");
       Register_Routine (T, Test_CONVFMT'Access, "CONVFMT governs implicit number-to-string");
       Register_Routine (T, Test_Redirect'Access, "output redirection to a file");
+      Register_Routine (T, Test_Reentrancy'Access, "concurrent runs do not share state");
    end Register_Tests;
 
    function Suite return AUnit.Test_Suites.Access_Test_Suite is

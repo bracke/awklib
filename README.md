@@ -39,8 +39,9 @@ end;
 
 `Files` supplies content for `getline < name`; `Input_Files` supplies the main input as
 an ordered list of (FILENAME, content) pairs so `FILENAME`/`FNR` track multi-file input.
-The interpreter is **not reentrant** — its state is process-global; run one program at a
-time.
+The interpreter is **reentrant**: all state is local to a `Run` call, so independent
+programs may run concurrently on separate tasks (the shared compiled-regex cache is
+guarded by a protected object).
 
 Supported today includes fields and `NF`/`NR`, `BEGIN`/`END`, regex and relational
 patterns, `FS`/`OFS`/`ORS`, arithmetic and strnum semantics, `printf`/`print`,

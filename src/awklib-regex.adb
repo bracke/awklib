@@ -47,7 +47,33 @@ package body Awklib.Regex is
       Hash            => Ada.Strings.Hash,
       Equivalent_Keys => "=");
 
-   Cache : Cache_Maps.Map;
+   --  The compiled-regex cache is shared across all interpreter runs (a compiled
+   --  Regexp is immutable, so it is safe to share), so guard the map itself with a
+   --  protected object -- otherwise concurrent runs would race on insert.
+   protected Cache_Store is
+      procedure Find (Pattern : String; Comp : out Comp_Access; Found : out Boolean);
+      procedure Store (Pattern : String; Comp : Comp_Access);
+   private
+      Cache : Cache_Maps.Map;
+   end Cache_Store;
+
+   protected body Cache_Store is
+      procedure Find (Pattern : String; Comp : out Comp_Access; Found : out Boolean) is
+         C : constant Cache_Maps.Cursor := Cache.Find (Pattern);
+      begin
+         Found := Cache_Maps.Has_Element (C);
+         Comp  := (if Found then Cache_Maps.Element (C) else null);
+      end Find;
+
+      procedure Store (Pattern : String; Comp : Comp_Access) is
+      begin
+         --  A concurrent run may have compiled the same pattern first; keep whatever
+         --  is already there rather than raising on a duplicate key.
+         if not Cache.Contains (Pattern) then
+            Cache.Insert (Pattern, Comp);
+         end if;
+      end Store;
+   end Cache_Store;
 
    Awk_Options : constant Regexp.Match_Options :=
      (Case_Sensitive => True, others => <>);
@@ -59,13 +85,12 @@ package body Awklib.Regex is
       Comp    : out Comp_Access;
       Ok      : out Boolean)
    is
-      C : constant Cache_Maps.Cursor := Cache.Find (Pattern);
+      Found : Boolean;
    begin
-      if Cache_Maps.Has_Element (C) then
-         Comp := Cache_Maps.Element (C);
-      else
+      Cache_Store.Find (Pattern, Comp, Found);
+      if not Found then
          Comp := new Regexp.Compile_Result'(Regexp.Compile (Translate_Escapes (Pattern)));
-         Cache.Insert (Pattern, Comp);
+         Cache_Store.Store (Pattern, Comp);
       end if;
       Ok := Comp.Status = Regexp.Compile_Ok;
    end Get_Compiled;

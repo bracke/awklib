@@ -4,7 +4,7 @@ with Awklib.Ast;
 package Awklib.Parser is
    --  Recursive-descent parser producing an Awklib.Ast.Program.
    --
-   --  Not reentrant: a single Parse call runs to completion on one thread.
+   --  Reentrant: all parser state is local to a Parse call.
 
    package U renames Ada.Strings.Unbounded;
 

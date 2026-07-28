@@ -119,8 +119,8 @@ begin
      ("README.md", "leftmost-first",
       "README must document the leftmost-first regex boundary");
    Require_Text
-     ("CLAUDE.md", "not reentrant",
-      "CLAUDE.md must warn that the interpreter is not reentrant");
+     ("CLAUDE.md", "reentrant",
+      "CLAUDE.md must document the reentrancy contract (no package-level mutable state)");
    Require_Text
      ("CLAUDE.md", "strnum",
       "CLAUDE.md must describe the strnum value model");
