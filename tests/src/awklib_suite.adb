@@ -666,6 +666,33 @@ package body Awklib_Suite is
       Assert (Awk ("BEGIN { printf ""%G"", 10 ** 400 }") = "INF", "%G overflow prints INF");
    end Test_Arithmetic_Safety;
 
+   --  UTF-8: string functions count and index by codepoint, not byte. The
+   --  multibyte literals are built from explicit bytes so the source encoding
+   --  cannot fold them into Latin-1 single characters.
+   procedure Test_Utf8 (T : in out AUnit.Test_Cases.Test_Case'Class) is
+      pragma Unreferenced (T);
+      Eacute : constant String := Character'Val (16#C3#) & Character'Val (16#A9#);   --  é
+      Ri     : constant String :=                                                    --  日
+        Character'Val (16#E6#) & Character'Val (16#97#) & Character'Val (16#A5#);
+   begin
+      Assert (Awk ("BEGIN { print length(" & DQ & "caf" & Eacute & DQ & ") }") = "4" & LF,
+              "length counts codepoints, not bytes");
+      Assert (Awk ("BEGIN { print length(" & DQ & Ri & Ri & Ri & DQ & ") }") = "3" & LF,
+              "length counts multibyte CJK codepoints");
+      Assert (Awk ("BEGIN { print substr(" & DQ & "h" & Eacute & "llo" & DQ & ", 2, 1) }")
+              = Eacute & LF, "substr slices by codepoint position");
+      Assert (Awk ("BEGIN { print index(" & DQ & "x" & Eacute & "y" & DQ & ", " & DQ & "y" & DQ & ") }")
+              = "3" & LF, "index reports a codepoint position");
+      Assert (Awk ("BEGIN { n = split(" & DQ & "a" & Eacute & "b" & DQ & ", w, " & DQ & DQ
+              & "); print n, w[2] }") = "3 " & Eacute & LF, "empty-FS split yields whole codepoints");
+      Assert (Awk ("BEGIN { if (match(" & DQ & "z" & Eacute & "z" & DQ & ", " & DQ & Eacute & DQ
+              & ")) print RSTART, RLENGTH }") = "2 1" & LF, "match reports codepoint RSTART/RLENGTH");
+      Assert (Awk ("BEGIN { printf " & DQ & "%c" & DQ & ", 233 }") = Eacute,
+              "printf %c encodes a code point as UTF-8");
+      Assert (Awk ("BEGIN { printf " & DQ & "%c" & DQ & ", 26085 }") = Ri,
+              "printf %c encodes a multibyte code point");
+   end Test_Utf8;
+
    type Awklib_Test_Case is new AUnit.Test_Cases.Test_Case with null record;
 
    overriding function Name (T : Awklib_Test_Case) return AUnit.Message_String;
@@ -725,6 +752,7 @@ package body Awklib_Suite is
       Register_Routine (T, Test_Reentrancy'Access, "concurrent runs do not share state");
       Register_Routine (T, Test_Argv'Access, "ARGV/ARGC from Arguments or Input_Files");
       Register_Routine (T, Test_Arithmetic_Safety'Access, "div-by-zero errors; overflow prints inf/nan");
+      Register_Routine (T, Test_Utf8'Access, "string functions are UTF-8 codepoint-aware");
    end Register_Tests;
 
    function Suite return AUnit.Test_Suites.Access_Test_Suite is

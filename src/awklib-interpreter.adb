@@ -11,6 +11,7 @@ with Awklib.Values;
 with Awklib.Format;
 with Awklib.Regex;
 with Awklib.Parser;
+with Awklib.Utf8;
 
 package body Awklib.Interpreter is
 
@@ -306,9 +307,19 @@ package body Awklib.Interpreter is
                end loop;
             end;
          elsif not Is_Regex and then Sep'Length = 0 then
-            for C of S loop
-               Result.Append (To_Unbounded_String ([1 => C]));
-            end loop;
+            --  Empty separator: one element per codepoint, not per byte.
+            declare
+               Rel : Positive := 1;
+            begin
+               while Rel <= S'Length loop
+                  declare
+                     Len : constant Positive := Awklib.Utf8.Sequence_Length (S, S'First + Rel - 1);
+                  begin
+                     Result.Append (To_Unbounded_String (S (S'First + Rel - 1 .. S'First + Rel + Len - 2)));
+                     Rel := Rel + Len;
+                  end;
+               end loop;
+            end;
          elsif not Is_Regex and then Sep'Length = 1 then
             declare
                Start : Integer := S'First;
@@ -720,32 +731,37 @@ package body Awklib.Interpreter is
          case B is
             when A.B_Length =>
                if NArgs = 0 then
-                  return V.To_Value (V.Number (Length (Field0)));
+                  return V.To_Value (V.Number (Awklib.Utf8.Count (To_String (Field0))));
                elsif Arg (1).Kind = A.E_Var and then Is_Array (To_String (Arg (1).Var_Name)) then
                   return V.To_Value (V.Number (Natural (Get_Array (To_String (Arg (1).Var_Name)).Length)));
                else
-                  return V.To_Value (V.Number (Eval_Str (Arg (1))'Length));
+                  return V.To_Value (V.Number (Awklib.Utf8.Count (Eval_Str (Arg (1)))));
                end if;
 
             when A.B_Substr =>
                declare
-                  S : constant String := Eval_Str (Arg (1));
-                  M : constant Integer := To_Int (Eval_Num (Arg (2)));
-                  N : Integer := (if NArgs >= 3 then To_Int (Eval_Num (Arg (3))) else Integer'Last);
+                  S     : constant String := Eval_Str (Arg (1));
+                  Chars : constant Integer := Awklib.Utf8.Count (S);
+                  M     : constant Integer := To_Int (Eval_Num (Arg (2)));
+                  N     : Integer := (if NArgs >= 3 then To_Int (Eval_Num (Arg (3))) else Integer'Last);
                   First_Idx, Last_Idx : Integer;
+                  B0, B1 : Positive;
                begin
-                  --  AWK 1-based; clamp per POSIX.
+                  --  AWK 1-based; positions and length count codepoints, not bytes.
                   if NArgs < 3 then
-                     N := S'Length;   --  to end
+                     N := Chars;   --  to end
                   end if;
                   First_Idx := M;
-                  Last_Idx := (if N = Integer'Last then S'Length else M + N - 1);
+                  Last_Idx := (if N = Integer'Last then Chars else M + N - 1);
                   if First_Idx < 1 then First_Idx := 1; end if;
-                  if Last_Idx > S'Length then Last_Idx := S'Length; end if;
+                  if Last_Idx > Chars then Last_Idx := Chars; end if;
                   if First_Idx > Last_Idx then
                      return V.To_Value ("");
                   end if;
-                  return V.To_Value (S (S'First + First_Idx - 1 .. S'First + Last_Idx - 1));
+                  --  Map the clamped codepoint range to byte offsets and slice.
+                  B0 := Awklib.Utf8.Char_To_Byte (S, First_Idx);
+                  B1 := Awklib.Utf8.Char_To_Byte (S, Last_Idx + 1) - 1;
+                  return V.To_Value (S (S'First + B0 - 1 .. S'First + B1 - 1));
                end;
 
             when A.B_Index =>
@@ -756,9 +772,12 @@ package body Awklib.Interpreter is
                   if T'Length = 0 then
                      return V.To_Value (V.Number (0));
                   end if;
+                  --  Search by bytes (UTF-8 is self-synchronising, so a match can
+                  --  only start on a codepoint boundary) and report the 1-based
+                  --  codepoint position of the match.
                   for I in S'First .. S'Last - T'Length + 1 loop
                      if S (I .. I + T'Length - 1) = T then
-                        return V.To_Value (V.Number (I - S'First + 1));
+                        return V.To_Value (V.Number (Awklib.Utf8.Byte_To_Char (S, I - S'First + 1)));
                      end if;
                   end loop;
                   return V.To_Value (V.Number (0));
@@ -809,9 +828,15 @@ package body Awklib.Interpreter is
                   M : constant Awklib.Regex.Match := Awklib.Regex.Search (P, S, 1);
                begin
                   if M.Matched then
-                     Set_Scalar ("RSTART", V.To_Value (V.Number (M.First)));
-                     Set_Scalar ("RLENGTH", V.To_Value (V.Number (M.Last - M.First + 1)));
-                     return V.To_Value (V.Number (M.First));
+                     declare
+                        R_Start : constant Natural := Awklib.Utf8.Byte_To_Char (S, M.First);
+                        R_Len   : constant Natural :=
+                          Awklib.Utf8.Count (S (S'First + M.First - 1 .. S'First + M.Last - 1));
+                     begin
+                        Set_Scalar ("RSTART", V.To_Value (V.Number (R_Start)));
+                        Set_Scalar ("RLENGTH", V.To_Value (V.Number (R_Len)));
+                        return V.To_Value (V.Number (R_Start));
+                     end;
                   else
                      Set_Scalar ("RSTART", V.To_Value (V.Number (0)));
                      Set_Scalar ("RLENGTH", V.To_Value (V.Number (-1)));

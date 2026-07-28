@@ -1,6 +1,7 @@
 with Ada.Strings.Unbounded;    use Ada.Strings.Unbounded;
 with Ada.Long_Float_Text_IO;
 with Interfaces;               use Interfaces;
+with Awklib.Utf8;
 
 package body Awklib.Format is
 
@@ -382,18 +383,25 @@ package body Awklib.Format is
                                          Width, Prec, Alt, "0X");
                         when 'c' =>
                            declare
-                              A : constant V.Value := Next_Arg;
-                              S : constant String := V.As_String (A);
-                              Ch : String (1 .. 1);
+                              Arg_C : constant V.Value := Next_Arg;
+                              S     : constant String := V.As_String (Arg_C);
+                              Ch    : Unbounded_String;
                            begin
-                              if A.Kind = V.Num then
-                                 Ch (1) := Character'Val (Integer (V.As_Number (A)) mod 256);
+                              if Arg_C.Kind = V.Num then
+                                 --  A number is the code point to emit, UTF-8 encoded.
+                                 declare
+                                    Code : constant Integer := Integer (V.As_Number (Arg_C));
+                                 begin
+                                    if Code >= 0 then
+                                       Ch := To_Unbounded_String (Awklib.Utf8.Encode (Code));
+                                    end if;
+                                 end;
                               elsif S'Length > 0 then
-                                 Ch (1) := S (S'First);
-                              else
-                                 Ch (1) := Character'Val (0);
+                                 --  A string yields its first character (whole codepoint).
+                                 Ch := To_Unbounded_String
+                                   (S (S'First .. S'First + Awklib.Utf8.Sequence_Length (S, S'First) - 1));
                               end if;
-                              Emit_Field (Ch, Width, Flag_Minus);
+                              Emit_Field (To_String (Ch), Width, Flag_Minus);
                            end;
                         when 's' =>
                            declare
