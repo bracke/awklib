@@ -1,5 +1,4 @@
 with Ada.Containers.Indefinite_Hashed_Maps;
-with Ada.Containers.Vectors;
 with Ada.Strings.Hash;
 with Ada.Strings.Unbounded;   use Ada.Strings.Unbounded;
 with Ada.Characters.Handling;
@@ -305,7 +304,7 @@ package body Awklib.Interpreter is
             end;
          elsif not Is_Regex and then Sep'Length = 0 then
             for C of S loop
-               Result.Append (To_Unbounded_String ((1 => C)));
+               Result.Append (To_Unbounded_String ([1 => C]));
             end loop;
          elsif not Is_Regex and then Sep'Length = 1 then
             declare
@@ -728,7 +727,7 @@ package body Awklib.Interpreter is
             when A.B_Substr =>
                declare
                   S : constant String := Eval_Str (Arg (1));
-                  M : Integer := To_Int (Eval_Num (Arg (2)));
+                  M : constant Integer := To_Int (Eval_Num (Arg (2)));
                   N : Integer := (if NArgs >= 3 then To_Int (Eval_Num (Arg (3))) else Integer'Last);
                   First_Idx, Last_Idx : Integer;
                begin
@@ -1143,7 +1142,12 @@ package body Awklib.Interpreter is
                   end if;
                end;
             when A.R_Pipe =>
-               Runtime_Error ("output pipes are not supported");
+               --  Output pipes (`print | "cmd"`) would spawn a process, which
+               --  this hermetic library does not do. Degrade quietly by dropping
+               --  the piped output, consistent with the other process constructs
+               --  (`system` returns -1, `"cmd" | getline` returns 0/EOF) rather
+               --  than failing the whole run.
+               null;
          end case;
       end Emit;
 
@@ -1368,7 +1372,7 @@ package body Awklib.Interpreter is
       Parse_Status : Awklib.Parser.Result_Status;
       Parse_Msg    : Unbounded_String;
       Has_Main_Or_End : Boolean := False;
-      Range_Active : array (1 .. 4096) of Boolean := (others => False);
+      Range_Active : array (1 .. 4096) of Boolean := [others => False];
    begin
       --  Reset global state.
       Globals_Scalar.Clear;
