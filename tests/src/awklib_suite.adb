@@ -593,6 +593,48 @@ package body Awklib_Suite is
       end loop;
    end Test_Reentrancy;
 
+   --  ARGV/ARGC: seeded from client-supplied Arguments, and (when none are
+   --  given) derived from the Input_Files names, as awk's own ARGV would be.
+   procedure Test_Argv (T : in out AUnit.Test_Cases.Test_Case'Class) is
+      pragma Unreferenced (T);
+      Empty     : I.Assignment_Vectors.Vector;
+      Written   : I.Assignment_Vectors.Vector;
+      Args      : I.String_Vectors.Vector;
+      Output    : U.Unbounded_String;
+      Message   : U.Unbounded_String;
+      Exit_Code : Integer;
+      Status    : I.Run_Status;
+   begin
+      Args.Append (U.To_Unbounded_String ("alpha"));
+      Args.Append (U.To_Unbounded_String ("beta"));
+      I.Run
+        (Program_Source =>
+           "BEGIN { printf ""%d;%s;%s;%s"", ARGC, ARGV[0], ARGV[1], ARGV[2] }",
+         Input => "", Assignments => Empty, Environment => Empty,
+         Filename => "test", Output => Output, Exit_Code => Exit_Code,
+         Status => Status, Message => Message, Output_Files => Written,
+         Arguments => Args);
+      Assert (U.To_String (Output) = "3;awk;alpha;beta",
+              "client-supplied Arguments seed ARGV[1..], ARGV[0], and ARGC");
+
+      declare
+         Inputs : I.Assignment_Vectors.Vector;
+         Out2   : U.Unbounded_String;
+         W2     : I.Assignment_Vectors.Vector;
+      begin
+         Inputs.Append (Pair ("data1", "x" & LF));
+         Inputs.Append (Pair ("data2", "y" & LF));
+         I.Run
+           (Program_Source => "BEGIN { printf ""%d;%s;%s"", ARGC, ARGV[1], ARGV[2] }",
+            Input => "", Assignments => Empty, Environment => Empty,
+            Filename => "test", Output => Out2, Exit_Code => Exit_Code,
+            Status => Status, Message => Message, Output_Files => W2,
+            Input_Files => Inputs);
+         Assert (U.To_String (Out2) = "3;data1;data2",
+                 "with no Arguments, ARGV/ARGC default to the Input_Files names");
+      end;
+   end Test_Argv;
+
    type Awklib_Test_Case is new AUnit.Test_Cases.Test_Case with null record;
 
    overriding function Name (T : Awklib_Test_Case) return AUnit.Message_String;
@@ -650,6 +692,7 @@ package body Awklib_Suite is
       Register_Routine (T, Test_CONVFMT'Access, "CONVFMT governs implicit number-to-string");
       Register_Routine (T, Test_Redirect'Access, "output redirection to a file");
       Register_Routine (T, Test_Reentrancy'Access, "concurrent runs do not share state");
+      Register_Routine (T, Test_Argv'Access, "ARGV/ARGC from Arguments or Input_Files");
    end Register_Tests;
 
    function Suite return AUnit.Test_Suites.Access_Test_Suite is

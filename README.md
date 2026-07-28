@@ -45,14 +45,19 @@ Redirected output is symmetric: `print > name` / `print >> name` is **captured i
 memory** and returned in `Output_Files` (one (name, content) entry per target, in
 first-write order) — the library never touches the filesystem, so a front end decides
 whether and where to write those files (the `cli/awk_run` example writes them to disk).
+
+`Arguments` seeds `ARGV`/`ARGC` the way a command line would (`ARGV[0]` is `"awk"`,
+`ARGV[1..n]` the supplied strings, `ARGC` = n + 1); omit it and they default to the
+`Input_Files` names, as awk's own `ARGV` holds the files it was given. `ARGV`/`ARGC` are
+readable by the program but do not drive input — records come from `Input_Files`.
 The interpreter is **reentrant**: all state is local to a `Run` call, so independent
 programs may run concurrently on separate tasks (the shared compiled-regex cache is
 guarded by a protected object).
 
 Supported today includes fields and `NF`/`NR`, `BEGIN`/`END`, regex and relational
 patterns, `FS`/`OFS`/`ORS`, arithmetic and strnum semantics, `printf`/`print`,
-`length`/`substr`/`toupper`/`sub`/`gsub`, `getline`, and multi-file input — see the
-[testsuite](tests/src/awklib_suite.adb) for worked behaviours.
+`length`/`substr`/`toupper`/`sub`/`gsub`, `getline`, `ARGC`/`ARGV`, and multi-file
+input — see the [testsuite](tests/src/awklib_suite.adb) for worked behaviours.
 
 ## Known boundaries
 

@@ -39,7 +39,8 @@ package body Awklib.Interpreter is
       Message        : out U.Unbounded_String;
       Output_Files   : out Assignment_Vectors.Vector;
       Files          : Assignment_Vectors.Vector := Assignment_Vectors.Empty_Vector;
-      Input_Files    : Assignment_Vectors.Vector := Assignment_Vectors.Empty_Vector)
+      Input_Files    : Assignment_Vectors.Vector := Assignment_Vectors.Empty_Vector;
+      Arguments      : String_Vectors.Vector := String_Vectors.Empty_Vector)
    is
       package LF_Math is new Ada.Numerics.Generic_Elementary_Functions (Long_Float);
 
@@ -1432,6 +1433,33 @@ package body Awklib.Interpreter is
          for E of Environment loop
             Env.Include (To_String (E.Name), V.Make_Strnum (To_String (E.Value)));
          end loop;
+      end;
+
+      --  ARGV/ARGC: ARGV[0] is "awk", then the supplied arguments, or -- when the
+      --  caller gives none -- the input-file names, as awk's own ARGV would hold.
+      declare
+         Argv  : constant Array_Ref := Get_Array ("ARGV");
+         Count : Natural := 0;
+
+         function Key (N : Natural) return String is
+            S : constant String := Natural'Image (N);
+         begin
+            return S (S'First + 1 .. S'Last);   --  drop Natural'Image's leading space
+         end Key;
+      begin
+         Argv.Include ("0", V.Make_Strnum ("awk"));
+         if not Arguments.Is_Empty then
+            for Arg of Arguments loop
+               Count := Count + 1;
+               Argv.Include (Key (Count), V.Make_Strnum (To_String (Arg)));
+            end loop;
+         else
+            for F of Input_Files loop
+               Count := Count + 1;
+               Argv.Include (Key (Count), V.Make_Strnum (To_String (F.Name)));
+            end loop;
+         end if;
+         Set_Scalar ("ARGC", V.To_Value (V.Number (Count + 1)));
       end;
 
       for R of Prog.Rules loop

@@ -16,6 +16,11 @@ package Awklib.Interpreter is
    package Assignment_Vectors is new Ada.Containers.Vectors
      (Index_Type => Positive, Element_Type => Var_Assignment);
 
+   --  A plain ordered list of strings, used to supply the program arguments
+   --  that seed ARGV/ARGC.
+   package String_Vectors is new Ada.Containers.Vectors
+     (Index_Type => Positive, Element_Type => U.Unbounded_String, "=" => U."=");
+
    type Run_Status is (Run_Ok, Run_Error);
 
    procedure Run
@@ -30,7 +35,8 @@ package Awklib.Interpreter is
       Message        : out U.Unbounded_String;
       Output_Files   : out Assignment_Vectors.Vector;
       Files          : Assignment_Vectors.Vector := Assignment_Vectors.Empty_Vector;
-      Input_Files    : Assignment_Vectors.Vector := Assignment_Vectors.Empty_Vector);
+      Input_Files    : Assignment_Vectors.Vector := Assignment_Vectors.Empty_Vector;
+      Arguments      : String_Vectors.Vector := String_Vectors.Empty_Vector);
    --  Files provides the content of named files for `getline < name`: each
    --  entry maps a filename to its full text. A getline from a name absent
    --  here returns -1 (open failure), as AWK would for a missing file.
@@ -44,6 +50,13 @@ package Awklib.Interpreter is
    --  Environment seeds ENVIRON[]. Filename sets FILENAME. Standard output is
    --  captured in Output. Exit_Code carries any `exit N`. On Run_Error, Message
    --  describes a lex/parse/runtime failure.
+   --
+   --  Arguments seeds ARGV/ARGC the way a command line would: ARGV[0] is "awk",
+   --  ARGV[1 .. n] are the supplied strings, and ARGC is n + 1. When Arguments is
+   --  empty, ARGV/ARGC are derived from the Input_Files names instead, matching
+   --  awk (whose ARGV is the input files it was given). ARGV/ARGC are readable by
+   --  the program but do not drive input -- records still come from Input_Files,
+   --  so mutating ARGV/ARGC in BEGIN does not change what is read.
    --
    --  Output_Files captures redirected output in memory instead of touching the
    --  filesystem: every `print > name` / `print >> name` / `printf > name`

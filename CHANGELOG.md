@@ -19,6 +19,10 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   which were previously stubs returning 0.
 - `**` and `**=` as aliases for the `^` and `^=` exponentiation operators, the way
   one-true-awk and gawk accept them.
+- `ARGC`/`ARGV`, seeded from a new optional `Arguments` parameter on
+  `Awklib.Interpreter.Run` (`ARGV[0]` is `"awk"`, `ARGV[1..n]` the supplied strings,
+  `ARGC` = n + 1); when `Arguments` is omitted they are derived from the `Input_Files`
+  names, matching awk. They are readable but do not drive input.
 
 ### Changed
 

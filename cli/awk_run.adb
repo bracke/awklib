@@ -19,6 +19,7 @@ procedure Awk_Run is
    Input       : Unbounded_String;
    First_File  : Unbounded_String;
    Input_Files : I.Assignment_Vectors.Vector;
+   Arguments   : I.String_Vectors.Vector;
    Have_Input  : Boolean := False;
 
    function Read_File (Path : String) return String is
@@ -98,10 +99,12 @@ begin
    end if;
 
    --  Remaining args: input files, each a separate (FILENAME, content) entry.
+   --  The same file names also form ARGV (ARGV[1 .. n]); the library adds ARGV[0].
    while Idx <= Argument_Count loop
       Input_Files.Append
         (I.Var_Assignment'(Name  => To_Unbounded_String (Argument (Idx)),
                            Value => To_Unbounded_String (Read_File (Argument (Idx)))));
+      Arguments.Append (To_Unbounded_String (Argument (Idx)));
       Have_Input := True;
       Idx := Idx + 1;
    end loop;
@@ -144,7 +147,8 @@ begin
          Status         => Status,
          Message        => Message,
          Output_Files   => Output_Files,
-         Input_Files    => Input_Files);
+         Input_Files    => Input_Files,
+         Arguments      => Arguments);
 
       String'Write (Ada.Text_IO.Text_Streams.Stream (Ada.Text_IO.Standard_Output),
                     To_String (Output));
