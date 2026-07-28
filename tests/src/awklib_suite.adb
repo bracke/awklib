@@ -251,6 +251,28 @@ package body Awklib_Suite is
               "OFMT formats printed numbers");
    end Test_OFMT;
 
+   procedure Test_Printf_Sci (T : in out AUnit.Test_Cases.Test_Case'Class) is
+      pragma Unreferenced (T);
+   begin
+      Assert (Awk ("BEGIN { printf ""%e"", 31415.9 }") = "3.141590e+04", "%e is C-style");
+      Assert (Awk ("BEGIN { printf ""%E"", 1000000 }") = "1.000000E+06", "%E is C-style");
+   end Test_Printf_Sci;
+
+   procedure Test_Printf_G (T : in out AUnit.Test_Cases.Test_Case'Class) is
+      pragma Unreferenced (T);
+   begin
+      Assert (Awk ("BEGIN { printf ""%g"", 3.14159 }") = "3.14159", "%g fixed form");
+      Assert (Awk ("BEGIN { printf ""%g"", 1000000 }") = "1e+06", "%g switches to exponent");
+      Assert (Awk ("BEGIN { printf ""%g"", 0.00001 }") = "1e-05", "%g small switches to exponent");
+   end Test_Printf_G;
+
+   procedure Test_Printf_F0 (T : in out AUnit.Test_Cases.Test_Case'Class) is
+      pragma Unreferenced (T);
+   begin
+      Assert (Awk ("BEGIN { printf ""%.0f"", 2.7 }") = "3", "%.0f rounds");
+      Assert (Awk ("BEGIN { printf ""%.0f"", 2.5 }") = "2", "%.0f rounds half to even");
+   end Test_Printf_F0;
+
    type Awklib_Test_Case is new AUnit.Test_Cases.Test_Case with null record;
 
    overriding function Name (T : Awklib_Test_Case) return AUnit.Message_String;
@@ -288,6 +310,9 @@ package body Awklib_Suite is
       Register_Routine (T, Test_RS_Char'Access, "a single-character RS splits records");
       Register_Routine (T, Test_RS_Paragraph'Access, "RS = empty is paragraph mode");
       Register_Routine (T, Test_OFMT'Access, "OFMT formats printed numbers");
+      Register_Routine (T, Test_Printf_Sci'Access, "printf %e/%E are C-style");
+      Register_Routine (T, Test_Printf_G'Access, "printf %g is C-style");
+      Register_Routine (T, Test_Printf_F0'Access, "printf %.0f rounds");
    end Register_Tests;
 
    function Suite return AUnit.Test_Suites.Access_Test_Suite is

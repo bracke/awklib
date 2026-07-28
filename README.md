@@ -57,9 +57,6 @@ patterns, `FS`/`OFS`/`ORS`, arithmetic and strnum semantics, `printf`/`print`,
   rules, but not inside a `BEGIN` block: input records are split *after* `BEGIN` runs so
   that an `RS` assigned in `BEGIN` takes effect, and the two cannot both hold without lazy
   record reading. `getline < file` works everywhere; `cmd | getline` is not implemented.
-- **`printf` `%e`/`%g` are not yet C-style.** `%d`, `%s`, `%c`, `%x`, `%f` match C printf;
-  `%e`/`%g`/`%E`/`%G` currently render with Ada's exponential notation rather than C's.
-  `print`'s default number format is unaffected.
 
 ## Architecture
 

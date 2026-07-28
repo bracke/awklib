@@ -37,6 +37,123 @@ package body Awklib.Format is
       return [1 .. N => C];
    end Repeat;
 
+   --  C-printf rendering of a non-negative magnitude ---------------------------
+
+   function Trim_Spaces (S : String) return String is
+      First : Integer := S'First;
+   begin
+      while First <= S'Last and then S (First) = ' ' loop
+         First := First + 1;
+      end loop;
+      return S (First .. S'Last);
+   end Trim_Spaces;
+
+   --  "%f": Mag with Prec fraction digits.
+   function Format_Fixed (Mag : Long_Float; Prec : Natural) return String is
+      Buf : String (1 .. 512);
+   begin
+      --  Ada's Put does not honour Aft => 0 (it leaves a fraction), so render a
+      --  zero-precision value as the nearest integer (round half to even, as C
+      --  printf does). Guard the range that Long_Long_Integer can hold.
+      if Prec = 0 and then abs Mag < 1.0E18 then
+         return Trim_Spaces
+           (Long_Long_Integer'Image (Long_Long_Integer (Long_Float'Unbiased_Rounding (Mag))));
+      end if;
+      Ada.Long_Float_Text_IO.Put (Buf, Mag, Aft => Prec, Exp => 0);
+      return Trim_Spaces (Buf);
+   end Format_Fixed;
+
+   --  The mantissa (in [1, 10) unless Mag = 0), rendered with Prec fraction
+   --  digits, and the decimal exponent -- the shared core of %e and %g.
+   procedure Sci_Parts
+     (Mag : Long_Float; Prec : Natural; Mantissa : out Unbounded_String; Exp : out Integer)
+   is
+      M     : Long_Float := Mag;
+      E     : Integer := 0;
+      Scale : constant Long_Float := 10.0 ** Prec;
+   begin
+      if Mag = 0.0 then
+         Mantissa := To_Unbounded_String (Format_Fixed (0.0, Prec));
+         Exp := 0;
+         return;
+      end if;
+      while M >= 10.0 loop
+         M := M / 10.0;
+         E := E + 1;
+      end loop;
+      while M < 1.0 loop
+         M := M * 10.0;
+         E := E - 1;
+      end loop;
+      --  Round to Prec fraction digits; a carry to two integer digits bumps E.
+      M := Long_Float'Rounding (M * Scale) / Scale;
+      if M >= 10.0 then
+         M := M / 10.0;
+         E := E + 1;
+      end if;
+      Mantissa := To_Unbounded_String (Format_Fixed (M, Prec));
+      Exp := E;
+   end Sci_Parts;
+
+   --  "e+NN" / "E-NN": signed, at least two exponent digits.
+   function Exp_Suffix (Exp : Integer; Upper : Boolean) return String is
+      Body_S : constant String := Trim_Spaces (Integer'Image (abs Exp));
+      Padded : constant String := (if Body_S'Length < 2 then "0" & Body_S else Body_S);
+   begin
+      return (if Upper then "E" else "e") & (if Exp < 0 then "-" else "+") & Padded;
+   end Exp_Suffix;
+
+   --  "%e"/"%E".
+   function Format_Sci (Mag : Long_Float; Prec : Natural; Upper : Boolean) return String is
+      Mant : Unbounded_String;
+      Exp  : Integer;
+   begin
+      Sci_Parts (Mag, Prec, Mant, Exp);
+      return To_String (Mant) & Exp_Suffix (Exp, Upper);
+   end Format_Sci;
+
+   --  Drop trailing fraction zeros (and a bare trailing point) from an
+   --  exponent-free numeric string -- %g's shortest form.
+   function Strip_Zeros (S : String) return String is
+      Last    : Integer := S'Last;
+      Has_Dot : Boolean := False;
+   begin
+      for C of S loop
+         Has_Dot := Has_Dot or else C = '.';
+      end loop;
+      if not Has_Dot then
+         return S;
+      end if;
+      while Last > S'First and then S (Last) = '0' loop
+         Last := Last - 1;
+      end loop;
+      if Last >= S'First and then S (Last) = '.' then
+         Last := Last - 1;
+      end if;
+      return S (S'First .. Last);
+   end Strip_Zeros;
+
+   --  "%g"/"%G": %e when the exponent is < -4 or >= precision, else %f, with
+   --  trailing zeros stripped unless the alternate ('#') form is asked for.
+   function Format_Gen (Mag : Long_Float; Prec : Natural; Upper, Alt : Boolean) return String is
+      P    : constant Natural := (if Prec = 0 then 1 else Prec);
+      Mant : Unbounded_String;
+      Exp  : Integer;
+   begin
+      Sci_Parts (Mag, P - 1, Mant, Exp);
+      if Exp < -4 or else Exp >= P then
+         return
+           (if Alt then To_String (Mant) else Strip_Zeros (To_String (Mant)))
+           & Exp_Suffix (Exp, Upper);
+      else
+         declare
+            F : constant String := Format_Fixed (Mag, P - 1 - Exp);
+         begin
+            return (if Alt then F else Strip_Zeros (F));
+         end;
+      end if;
+   end Format_Gen;
+
    function Sprintf (Fmt : String; Args : Value_Array) return String is
       Out_Buf : Unbounded_String;
       Arg_Idx : Integer := Args'First;
@@ -130,24 +247,17 @@ package body Awklib.Format is
          Prec       : Integer)
       is
          X    : constant Long_Float := Long_Float (V.As_Number (Val));
-         P    : constant Integer := (if Prec < 0 then 6 else Prec);
-         Buf  : String (1 .. 400);
+         P    : constant Natural := (if Prec < 0 then 6 else Prec);
          Core : Unbounded_String;
       begin
          case Conv is
             when 'f' | 'F' =>
-               Ada.Long_Float_Text_IO.Put (Buf, abs X, Aft => P, Exp => 0);
-            when others =>   --  'e','E','g','G' -> scientific-ish
-               Ada.Long_Float_Text_IO.Put (Buf, abs X, Aft => P, Exp => 2);
+               Core := To_Unbounded_String (Format_Fixed (abs X, P));
+            when 'e' | 'E' =>
+               Core := To_Unbounded_String (Format_Sci (abs X, P, Conv = 'E'));
+            when others =>   --  'g','G'
+               Core := To_Unbounded_String (Format_Gen (abs X, P, Conv = 'G', Alt => False));
          end case;
-         declare
-            First : Integer := Buf'First;
-         begin
-            while First <= Buf'Last and then Buf (First) = ' ' loop
-               First := First + 1;
-            end loop;
-            Core := To_Unbounded_String (Buf (First .. Buf'Last));
-         end;
          declare
             Sign : constant String :=
               (if X < 0.0 then "-" elsif Flag_Plus then "+"
