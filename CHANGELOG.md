@@ -35,6 +35,11 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- Division and modulo by zero no longer crash the host: they are reported as a graceful
+  `Run_Error` ("division by zero"), and a top-level handler on `Run` converts any other
+  unexpected exception into a `Run_Error` so an embedded interpreter can never abort its
+  caller. A non-finite result (overflow) now formats as `inf`/`-inf`/`nan` like C and awk
+  instead of overflowing the number formatter.
 - `getline` and `getline var` from the main input stream now advance the record cursor
   instead of being a no-op.
 - Custom `RS`, including single-character and paragraph mode, is honoured when splitting

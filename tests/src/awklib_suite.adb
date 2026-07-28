@@ -635,6 +635,37 @@ package body Awklib_Suite is
       end;
    end Test_Argv;
 
+   --  Arithmetic must never crash the host: division by zero is a graceful
+   --  runtime error, and a non-finite result formats as inf/nan like C/awk.
+   procedure Test_Arithmetic_Safety (T : in out AUnit.Test_Cases.Test_Case'Class) is
+      pragma Unreferenced (T);
+      Empty     : I.Assignment_Vectors.Vector;
+      Written   : I.Assignment_Vectors.Vector;
+      Output    : U.Unbounded_String;
+      Message   : U.Unbounded_String;
+      Exit_Code : Integer;
+      Status    : I.Run_Status;
+   begin
+      I.Run
+        (Program_Source => "BEGIN { print 1 / 0 }", Input => "",
+         Assignments => Empty, Environment => Empty, Filename => "test",
+         Output => Output, Exit_Code => Exit_Code, Status => Status,
+         Message => Message, Output_Files => Written);
+      Assert (Status = I.Run_Error, "division by zero is a runtime error, not a crash");
+      Assert (U.Index (Message, "division by zero") > 0, "the message names division by zero");
+
+      I.Run
+        (Program_Source => "BEGIN { print 5 % 0 }", Input => "",
+         Assignments => Empty, Environment => Empty, Filename => "test",
+         Output => Output, Exit_Code => Exit_Code, Status => Status,
+         Message => Message, Output_Files => Written);
+      Assert (Status = I.Run_Error, "modulo by zero is a runtime error, not a crash");
+
+      Assert (Awk ("BEGIN { print 10 ** 400 }") = "inf" & LF, "overflow prints inf");
+      Assert (Awk ("BEGIN { print -1 * 10 ** 400 }") = "-inf" & LF, "negative overflow prints -inf");
+      Assert (Awk ("BEGIN { printf ""%G"", 10 ** 400 }") = "INF", "%G overflow prints INF");
+   end Test_Arithmetic_Safety;
+
    type Awklib_Test_Case is new AUnit.Test_Cases.Test_Case with null record;
 
    overriding function Name (T : Awklib_Test_Case) return AUnit.Message_String;
@@ -693,6 +724,7 @@ package body Awklib_Suite is
       Register_Routine (T, Test_Redirect'Access, "output redirection to a file");
       Register_Routine (T, Test_Reentrancy'Access, "concurrent runs do not share state");
       Register_Routine (T, Test_Argv'Access, "ARGV/ARGC from Arguments or Input_Files");
+      Register_Routine (T, Test_Arithmetic_Safety'Access, "div-by-zero errors; overflow prints inf/nan");
    end Register_Tests;
 
    function Suite return AUnit.Test_Suites.Access_Test_Suite is

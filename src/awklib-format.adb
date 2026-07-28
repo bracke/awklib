@@ -250,6 +250,22 @@ package body Awklib.Format is
          P    : constant Natural := (if Prec < 0 then 6 else Prec);
          Core : Unbounded_String;
       begin
+         if not (X = X) or else abs X > Long_Float'Last then
+            --  Non-finite: an overflowing computation yields +/-inf or NaN, which
+            --  C and awk print as inf/nan rather than crashing the formatter.
+            declare
+               Upper : constant Boolean := Conv in 'E' | 'F' | 'G';
+               Word  : constant String :=
+                 (if not (X = X) then (if Upper then "NAN" else "nan")
+                  else (if Upper then "INF" else "inf"));
+               Sign  : constant String :=
+                 (if X < 0.0 then "-" elsif Flag_Plus then "+"
+                  elsif Flag_Space then " " else "");
+            begin
+               Emit_Field (Sign & Word, Width, Flag_Minus);
+               return;
+            end;
+         end if;
          case Conv is
             when 'f' | 'F' =>
                Core := To_Unbounded_String (Format_Fixed (abs X, P));

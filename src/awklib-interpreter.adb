@@ -4,6 +4,7 @@ with Ada.Strings.Unbounded;   use Ada.Strings.Unbounded;
 with Ada.Characters.Handling;
 with Ada.Numerics.Generic_Elementary_Functions;
 with Ada.Numerics.Float_Random;
+with Ada.Exceptions;
 with Ada.Text_IO;
 with Awklib.Ast;
 with Awklib.Values;
@@ -22,6 +23,7 @@ package body Awklib.Interpreter is
    use type A.Expr_Kind;
    use type A.Builtin_Id;
    use type A.Assign_Op;
+   use type A.Bin_Op;
    use type A.Redirect_Kind;
    use type A.Pattern_Kind;
    use type A.Getline_Source;
@@ -991,8 +993,17 @@ package body Awklib.Interpreter is
                            when A.As_Add => Res := Cur + Rhs;
                            when A.As_Sub => Res := Cur - Rhs;
                            when A.As_Mul => Res := Cur * Rhs;
-                           when A.As_Div => Res := Cur / Rhs;
-                           when A.As_Mod => Res := Fmod (Cur, Rhs);
+                           when A.As_Div | A.As_Mod =>
+                              if Rhs = 0.0 then
+                                 Runtime_Error
+                                   ((if E.A_Op = A.As_Mod then "division by zero in %="
+                                     else "division by zero"));
+                                 Res := 0.0;
+                              elsif E.A_Op = A.As_Mod then
+                                 Res := Fmod (Cur, Rhs);
+                              else
+                                 Res := Cur / Rhs;
+                              end if;
                            when A.As_Pow => Res := V.Number (LF_Math."**" (Long_Float (Cur), Long_Float (Rhs)));
                            when A.As_Set => Res := Rhs;
                         end case;
@@ -1008,9 +1019,21 @@ package body Awklib.Interpreter is
                   when A.Op_Add => return V.To_Value (Eval_Num (E.L) + Eval_Num (E.R));
                   when A.Op_Sub => return V.To_Value (Eval_Num (E.L) - Eval_Num (E.R));
                   when A.Op_Mul => return V.To_Value (Eval_Num (E.L) * Eval_Num (E.R));
-                  when A.Op_Div => return V.To_Value (Eval_Num (E.L) / Eval_Num (E.R));
-                  when A.Op_Mod =>
-                     return V.To_Value (Fmod (Eval_Num (E.L), Eval_Num (E.R)));
+                  when A.Op_Div | A.Op_Mod =>
+                     declare
+                        Numer : constant V.Number := Eval_Num (E.L);
+                        Denom : constant V.Number := Eval_Num (E.R);
+                     begin
+                        if Denom = 0.0 then
+                           Runtime_Error
+                             ((if E.B_Op = A.Op_Mod then "division by zero in %"
+                               else "division by zero"));
+                           return V.To_Value (V.Number (0));
+                        end if;
+                        return V.To_Value
+                          ((if E.B_Op = A.Op_Mod then Fmod (Numer, Denom)
+                            else Numer / Denom));
+                     end;
                   when A.Op_Pow =>
                      return V.To_Value (V.Number (LF_Math."**" (Long_Float (Eval_Num (E.L)), Long_Float (Eval_Num (E.R)))));
                   when A.Op_Lt => return Bool_Num (V.Compare (Eval (E.L), Eval (E.R)) < 0);
@@ -1593,6 +1616,18 @@ package body Awklib.Interpreter is
          Status := Run_Ok;
          Message := Null_Unbounded_String;
       end if;
+   exception
+      when Err : others =>
+         --  A library must never abort its host. Should any operation raise an
+         --  unexpected exception -- e.g. a non-finite result overflowing the
+         --  number formatter -- turn it into a clean Run_Error instead of letting
+         --  it propagate out of Run and crash the caller.
+         Output := Out_Buf;
+         Output_Files.Clear;
+         Exit_Code := 2;
+         Status := Run_Error;
+         Message := To_Unbounded_String
+           ("awklib internal error: " & Ada.Exceptions.Exception_Message (Err));
    end Run;
 
 end Awklib.Interpreter;
