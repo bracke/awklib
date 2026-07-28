@@ -89,7 +89,12 @@ package body Awklib.Regex is
    begin
       Cache_Store.Find (Pattern, Comp, Found);
       if not Found then
-         Comp := new Regexp.Compile_Result'(Regexp.Compile (Translate_Escapes (Pattern)));
+         --  Compile in UTF-8 mode so ".", classes, and quantifiers match whole
+         --  code points. Matching stays lenient (the match options below are not
+         --  UTF_8_Mode, so no input-validation rejection); the engine's decoder
+         --  tolerates malformed bytes, which an awk program may legitimately see.
+         Comp := new Regexp.Compile_Result'
+           (Regexp.Compile (Translate_Escapes (Pattern), Character_Mode => Regexp.UTF_8_Mode));
          Cache_Store.Store (Pattern, Comp);
       end if;
       Ok := Comp.Status = Regexp.Compile_Ok;

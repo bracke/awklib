@@ -693,6 +693,32 @@ package body Awklib_Suite is
               "printf %c encodes a multibyte code point");
    end Test_Utf8;
 
+   --  Regex matches by code point (via the UTF-8-mode regexp engine): ".",
+   --  quantifiers, and classes span whole code points, not bytes.
+   procedure Test_Utf8_Regex (T : in out AUnit.Test_Cases.Test_Case'Class) is
+      pragma Unreferenced (T);
+      Eacute : constant String := Character'Val (16#C3#) & Character'Val (16#A9#);   --  é
+      Alpha  : constant String := Character'Val (16#CE#) & Character'Val (16#B1#);   --  α
+      Del : constant String := Character'Val (16#CE#) & Character'Val (16#B4#);   --  δ
+      Omega  : constant String := Character'Val (16#CF#) & Character'Val (16#89#);   --  ω
+   begin
+      --  "." matches one code point, so gsub over "café" replaces 4, not 5.
+      Assert (Awk ("BEGIN { s = " & DQ & "caf" & Eacute & DQ & "; gsub(/./, " & DQ & "X" & DQ
+              & ", s); print s }") = "XXXX" & LF, "gsub(/./ ) counts code points");
+      --  A negated class matches a whole multibyte code point.
+      Assert (Awk ("BEGIN { s = " & DQ & "a" & Eacute & "b" & DQ & "; gsub(/[^a]/, " & DQ & "_"
+              & DQ & ", s); print s }") = "a__" & LF, "gsub(/[^a]/ ) over code points");
+      --  A positive code-point range: [α-ω] matches δ but not an ASCII letter.
+      Assert (Awk ("BEGIN { if (" & DQ & Del & DQ & " ~ /[" & Alpha & "-" & Omega & "]/) "
+              & "print " & DQ & "yes" & DQ & " }") = "yes" & LF, "regex [greek-range] matches delta");
+      Assert (Awk ("BEGIN { if (" & DQ & "x" & DQ & " ~ /[" & Alpha & "-" & Omega & "]/) "
+              & "print " & DQ & "no" & DQ & "; else print " & DQ & "ok" & DQ & " }") = "ok" & LF,
+              "regex [greek-range] excludes ascii");
+      --  A multibyte literal in a regex matches its own code point.
+      Assert (Awk ("BEGIN { if (" & DQ & "z" & Eacute & DQ & " ~ /" & Eacute & "/) "
+              & "print " & DQ & "hit" & DQ & " }") = "hit" & LF, "regex multibyte literal");
+   end Test_Utf8_Regex;
+
    type Awklib_Test_Case is new AUnit.Test_Cases.Test_Case with null record;
 
    overriding function Name (T : Awklib_Test_Case) return AUnit.Message_String;
@@ -753,6 +779,7 @@ package body Awklib_Suite is
       Register_Routine (T, Test_Argv'Access, "ARGV/ARGC from Arguments or Input_Files");
       Register_Routine (T, Test_Arithmetic_Safety'Access, "div-by-zero errors; overflow prints inf/nan");
       Register_Routine (T, Test_Utf8'Access, "string functions are UTF-8 codepoint-aware");
+      Register_Routine (T, Test_Utf8_Regex'Access, "regex matches by UTF-8 code point");
    end Register_Tests;
 
    function Suite return AUnit.Test_Suites.Access_Test_Suite is

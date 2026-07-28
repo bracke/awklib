@@ -56,14 +56,19 @@ guarded by a protected object).
 
 Supported today includes fields and `NF`/`NR`, `BEGIN`/`END`, regex and relational
 patterns, `FS`/`OFS`/`ORS`, arithmetic and strnum semantics, `printf`/`print`,
-`length`/`substr`/`toupper`/`sub`/`gsub`, `getline`, `ARGC`/`ARGV`, and multi-file
-input — see the [testsuite](tests/src/awklib_suite.adb) for worked behaviours.
+`length`/`substr`/`toupper`/`sub`/`gsub`, `getline`, `ARGC`/`ARGV`, **UTF-8 text**, and
+multi-file input — see the [testsuite](tests/src/awklib_suite.adb) for worked behaviours.
 
 ## Known boundaries
 
 - **Regex discipline.** `regexp` is a backtracking (leftmost-first) engine, so matches
   follow that discipline rather than POSIX leftmost-longest. For the simple expressions
   AWK programs typically use, the two never diverge.
+- **UTF-8 is code-point aware, but byte-lenient.** String functions and regex operate on
+  whole code points (`length`, `substr`, `.`, `[α-ω]`, …), yet input is never rejected
+  for being malformed UTF-8 — stray bytes count as one character each. Because matching
+  stays byte-lenient, `\w`/`\b` word-membership and case-insensitive folding are
+  ASCII-only, and `printf` field width for `%c` counts bytes.
 - **`getline` from the main stream works in rules, not in `BEGIN`.** `getline`,
   `getline var`, and `while ((getline) > 0)` read the main input correctly inside main
   rules, but not inside a `BEGIN` block: input records are split *after* `BEGIN` runs so

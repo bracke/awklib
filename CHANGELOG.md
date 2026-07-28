@@ -8,6 +8,17 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **UTF-8 support.** String functions are code-point aware — `length`, `substr`,
+  `index`, `split ""`, empty-`FS` field splitting, `match`'s `RSTART`/`RLENGTH`, and
+  `printf %c` all count or emit whole code points rather than bytes (via a lenient
+  `Awklib.Utf8` helper; a malformed byte counts as one character, as gawk tolerates).
+  Regular expressions also match by code point — `.`, quantifiers, and classes
+  (including positive ranges like `[α-ω]` and negated classes like `[^,]`) span whole
+  code points — because awk patterns compile in the `regexp` engine's UTF-8 mode.
+  Boundaries: matching stays byte-lenient (arbitrary input bytes are tolerated, not
+  rejected), so `\b`/`\w` word-membership and case-insensitive folding remain
+  ASCII-only; `printf` field width for `%c` counts bytes.
+
 - Fleet-standard scaffolding: an AUnit test suite, tri-platform CI (Linux, macOS,
   Windows), README/CLAUDE/AGENTS on-ramp docs, and a `project_tools`-based release
   checklist (`check_awklib`).
