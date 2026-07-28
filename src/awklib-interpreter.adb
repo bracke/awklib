@@ -5,6 +5,7 @@ with Ada.Strings.Unbounded;   use Ada.Strings.Unbounded;
 with Ada.Characters.Handling;
 with Ada.Numerics.Generic_Elementary_Functions;
 with Ada.Numerics.Float_Random;
+with Ada.Streams.Stream_IO;
 with Ada.Text_IO;
 with Awklib.Ast;
 with Awklib.Values;
@@ -231,6 +232,28 @@ package body Awklib.Interpreter is
       return V.As_String (Val);
    end Get_Str;
 
+   --  Render a value as a string through a printf format: a genuine, non-integral
+   --  number goes through Fmt; integers print plainly and a string is itself.
+   --  This is how AWK stringifies numbers -- with CONVFMT in implicit contexts
+   --  (concatenation, array subscripts), OFMT when printed.
+   function Num_To_Str (Val : V.Value; Fmt : String) return String is
+      X : Long_Float;
+   begin
+      if Val.Kind = V.Num then
+         X := Long_Float (Val.N);
+         if X = Long_Float'Truncation (X) and then abs X < 1.0E18 then
+            return V.As_String (Val);
+         else
+            return Awklib.Format.Sprintf (Fmt, [1 => Val]);
+         end if;
+      else
+         return V.As_String (Val);
+      end if;
+   end Num_To_Str;
+
+   function Conv_Str (Val : V.Value) return String is
+     (Num_To_Str (Val, Get_Str ("CONVFMT", "%.6g")));
+
    --  Field / record model ----------------------------------------------------
    function Is_Space (C : Character) return Boolean is
      (C = ' ' or else C = HT or else C = ASCII.LF);
@@ -394,7 +417,7 @@ package body Awklib.Interpreter is
          if not First then
             Append (Buf, Subsep);
          end if;
-         Append (Buf, Eval_Str (E));
+         Append (Buf, Conv_Str (Eval (E)));
          First := False;
       end loop;
       return To_String (Buf);
@@ -933,7 +956,7 @@ package body Awklib.Interpreter is
             return Eval (E.Inner);
 
          when A.E_Concat =>
-            return V.To_Value (Eval_Str (E.C_L) & Eval_Str (E.C_R));
+            return V.To_Value (Conv_Str (Eval (E.C_L)) & Conv_Str (Eval (E.C_R)));
 
          when A.E_Assign =>
             declare
@@ -1083,19 +1106,28 @@ package body Awklib.Interpreter is
             Append (Out_Buf, Text);
          when A.R_File | A.R_Append =>
             declare
-               Name   : constant String := Eval_Str (Dest);
+               use Ada.Streams;
+               package SIO renames Ada.Streams.Stream_IO;
+               Name        : constant String := Eval_Str (Dest);
                Append_Mode : constant Boolean :=
                  Redir = A.R_Append or else Truncated.Contains (Name);
-               F : Ada.Text_IO.File_Type;
+               F   : SIO.File_Type;
+               Buf : Stream_Element_Array (1 .. Text'Length);
             begin
+               --  Write the bytes verbatim through a stream: Text_IO.Put treats
+               --  an embedded LF as a line terminator and emits it twice.
                if not Append_Mode then
                   Truncated.Include (Name, True);
-                  Ada.Text_IO.Create (F, Ada.Text_IO.Out_File, Name);
+                  SIO.Create (F, SIO.Out_File, Name);
                else
-                  Ada.Text_IO.Open (F, Ada.Text_IO.Append_File, Name);
+                  SIO.Open (F, SIO.Append_File, Name);
                end if;
-               Ada.Text_IO.Put (F, Text);
-               Ada.Text_IO.Close (F);
+               for I in Text'Range loop
+                  Buf (Stream_Element_Offset (I - Text'First + 1)) :=
+                    Stream_Element (Character'Pos (Text (I)));
+               end loop;
+               SIO.Write (F, Buf);
+               SIO.Close (F);
             exception
                when others =>
                   Runtime_Error ("cannot write to redirect target");
@@ -1105,23 +1137,10 @@ package body Awklib.Interpreter is
       end case;
    end Emit;
 
-   --  How `print` renders a value: a genuine, non-integral number goes through
-   --  OFMT (default "%.6g" -- six significant figures); integers print plainly,
-   --  and everything else is its string.
+   --  How `print` renders a value: a number through OFMT (default "%.6g"),
+   --  integers plain.
    function Output_Str (Val : V.Value) return String is
-      X : Long_Float;
-   begin
-      if Val.Kind = V.Num then
-         X := Long_Float (Val.N);
-         if X = Long_Float'Truncation (X) and then abs X < 1.0E18 then
-            return V.As_String (Val);
-         else
-            return Awklib.Format.Sprintf (Get_Str ("OFMT", "%.6g"), [1 => Val]);
-         end if;
-      else
-         return V.As_String (Val);
-      end if;
-   end Output_Str;
+     (Num_To_Str (Val, Get_Str ("OFMT", "%.6g")));
 
    procedure Do_Print (S : A.Stmt_Access) is
       OFS : constant String := Get_Str ("OFS", " ");

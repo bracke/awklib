@@ -2,6 +2,8 @@ with AUnit;
 with AUnit.Assertions;
 with AUnit.Test_Cases;
 
+with Ada.Directories;
+with Ada.Streams.Stream_IO;
 with Ada.Strings.Unbounded;
 
 with Awklib.Interpreter;
@@ -15,6 +17,28 @@ package body Awklib_Suite is
 
    LF : constant String := [1 => ASCII.LF];
    HT : constant String := [1 => ASCII.HT];
+   DQ : constant String := [1 => '"'];
+
+   --  Read a file back byte-for-byte (Stream_IO, so embedded newlines are not
+   --  reinterpreted) -- used to check output redirection.
+   function Read_File_Bytes (Path : String) return String is
+      use Ada.Streams;
+      package SIO renames Ada.Streams.Stream_IO;
+      F      : SIO.File_Type;
+      Buf    : Stream_Element_Array (1 .. 4096);
+      Last   : Stream_Element_Offset;
+      Result : U.Unbounded_String;
+   begin
+      SIO.Open (F, SIO.In_File, Path);
+      while not SIO.End_Of_File (F) loop
+         SIO.Read (F, Buf, Last);
+         for K in 1 .. Last loop
+            U.Append (Result, Character'Val (Buf (K)));
+         end loop;
+      end loop;
+      SIO.Close (F);
+      return U.To_String (Result);
+   end Read_File_Bytes;
 
    --  Run PROGRAM over INPUT with no seeded variables and return captured stdout.
    function Awk (Program : String; Input : String := "") return String is
@@ -480,6 +504,41 @@ package body Awklib_Suite is
       Assert (Awk ("BEGIN { printf ""x\ny\n"" }") = "x" & LF & "y" & LF, "newline escapes in printf");
    end Test_Escapes;
 
+   procedure Test_CONVFMT (T : in out AUnit.Test_Cases.Test_Case'Class) is
+      pragma Unreferenced (T);
+   begin
+      Assert (Awk ("BEGIN { CONVFMT = ""%.2f""; x = 3.14159; print x """" }") = "3.14" & LF,
+              "CONVFMT governs number-to-string in concatenation");
+      Assert (Awk ("BEGIN { CONVFMT = ""%.2f""; a[3.14159] = 1; for (k in a) print k }") = "3.14" & LF,
+              "CONVFMT governs an array subscript");
+      Assert (Awk ("BEGIN { x = 1 / 3; print x """" }") = "0.333333" & LF,
+              "the default CONVFMT is %.6g");
+   end Test_CONVFMT;
+
+   procedure Test_Redirect (T : in out AUnit.Test_Cases.Test_Case'Class) is
+      pragma Unreferenced (T);
+      Path      : constant String := "awklib_redirect.tmp";
+      Empty     : I.Assignment_Vectors.Vector;
+      Output    : U.Unbounded_String;
+      Message   : U.Unbounded_String;
+      Exit_Code : Integer;
+      Status    : I.Run_Status;
+      Program   : constant String :=
+        "BEGIN { print " & DQ & "a" & DQ & " > " & DQ & Path & DQ
+        & "; print " & DQ & "b" & DQ & " > " & DQ & Path & DQ & " }";
+   begin
+      if Ada.Directories.Exists (Path) then
+         Ada.Directories.Delete_File (Path);
+      end if;
+      I.Run
+        (Program_Source => Program, Input => "", Assignments => Empty,
+         Environment => Empty, Filename => "test", Output => Output,
+         Exit_Code => Exit_Code, Status => Status, Message => Message);
+      Assert (Read_File_Bytes (Path) = "a" & LF & "b" & LF,
+              "output redirection appends records with single newlines");
+      Ada.Directories.Delete_File (Path);
+   end Test_Redirect;
+
    type Awklib_Test_Case is new AUnit.Test_Cases.Test_Case with null record;
 
    overriding function Name (T : Awklib_Test_Case) return AUnit.Message_String;
@@ -534,6 +593,8 @@ package body Awklib_Suite is
       Register_Routine (T, Test_Printf_Flags'Access, "printf flags, width, %o/%x/%c");
       Register_Routine (T, Test_Coercion'Access, "strnum coercion and substr clamping");
       Register_Routine (T, Test_Escapes'Access, "string escapes");
+      Register_Routine (T, Test_CONVFMT'Access, "CONVFMT governs implicit number-to-string");
+      Register_Routine (T, Test_Redirect'Access, "output redirection to a file");
    end Register_Tests;
 
    function Suite return AUnit.Test_Suites.Access_Test_Suite is
