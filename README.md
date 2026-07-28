@@ -47,11 +47,19 @@ patterns, `FS`/`OFS`/`ORS`, arithmetic and strnum semantics, `printf`/`print`,
 `length`/`substr`/`toupper`/`sub`/`gsub`, `getline`, and multi-file input — see the
 [testsuite](tests/src/awklib_suite.adb) for worked behaviours.
 
-## Known boundary
+## Known boundaries
 
-`regexp` is a backtracking (leftmost-first) engine, so matches follow that discipline
-rather than POSIX leftmost-longest. For the simple expressions AWK programs typically use
-the two never diverge.
+- **Regex discipline.** `regexp` is a backtracking (leftmost-first) engine, so matches
+  follow that discipline rather than POSIX leftmost-longest. For the simple expressions
+  AWK programs typically use, the two never diverge.
+- **`getline` from the main stream works in rules, not in `BEGIN`.** `getline`,
+  `getline var`, and `while ((getline) > 0)` read the main input correctly inside main
+  rules, but not inside a `BEGIN` block: input records are split *after* `BEGIN` runs so
+  that an `RS` assigned in `BEGIN` takes effect, and the two cannot both hold without lazy
+  record reading. `getline < file` works everywhere; `cmd | getline` is not implemented.
+- **`printf` `%e`/`%g` are not yet C-style.** `%d`, `%s`, `%c`, `%x`, `%f` match C printf;
+  `%e`/`%g`/`%E`/`%G` currently render with Ada's exponential notation rather than C's.
+  `print`'s default number format is unaffected.
 
 ## Architecture
 

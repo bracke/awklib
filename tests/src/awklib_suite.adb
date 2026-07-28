@@ -210,6 +210,47 @@ package body Awklib_Suite is
       Assert (U.Length (Message) > 0, "a parse failure carries a message");
    end Test_Parse_Error;
 
+   procedure Test_Getline_Var (T : in out AUnit.Test_Cases.Test_Case'Class) is
+      pragma Unreferenced (T);
+   begin
+      Assert
+        (Awk ("{ getline nl; print $0 ""/"" nl }", "a" & LF & "b" & LF & "c" & LF & "d" & LF)
+           = "a/b" & LF & "c/d" & LF,
+         "getline into a variable reads the next main record");
+   end Test_Getline_Var;
+
+   procedure Test_Getline_Plain (T : in out AUnit.Test_Cases.Test_Case'Class) is
+      pragma Unreferenced (T);
+   begin
+      Assert (Awk ("{ getline; print }", "a" & LF & "b" & LF & "c" & LF & "d" & LF) = "b" & LF & "d" & LF,
+              "plain getline advances $0 to the next main record");
+   end Test_Getline_Plain;
+
+   procedure Test_RS_Char (T : in out AUnit.Test_Cases.Test_Case'Class) is
+      pragma Unreferenced (T);
+   begin
+      Assert
+        (Awk ("BEGIN { RS = "";"" } { print NR "": "" $0 }", "a;b;c")
+           = "1: a" & LF & "2: b" & LF & "3: c" & LF,
+         "a single-character RS splits records");
+   end Test_RS_Char;
+
+   procedure Test_RS_Paragraph (T : in out AUnit.Test_Cases.Test_Case'Class) is
+      pragma Unreferenced (T);
+   begin
+      Assert
+        (Awk ("BEGIN { RS = """" } { print NR }", "a" & LF & "b" & LF & LF & "c" & LF & "d" & LF)
+           = "1" & LF & "2" & LF,
+         "RS = """" is paragraph mode");
+   end Test_RS_Paragraph;
+
+   procedure Test_OFMT (T : in out AUnit.Test_Cases.Test_Case'Class) is
+      pragma Unreferenced (T);
+   begin
+      Assert (Awk ("BEGIN { OFMT = ""%.2f"" } { print $1 + 0 }", "3.14159" & LF) = "3.14" & LF,
+              "OFMT formats printed numbers");
+   end Test_OFMT;
+
    type Awklib_Test_Case is new AUnit.Test_Cases.Test_Case with null record;
 
    overriding function Name (T : Awklib_Test_Case) return AUnit.Message_String;
@@ -242,6 +283,11 @@ package body Awklib_Suite is
       Register_Routine (T, Test_Seeded_Variable'Access, "seeded variables are strnums");
       Register_Routine (T, Test_Exit_Code'Access, "exit N sets the exit code");
       Register_Routine (T, Test_Parse_Error'Access, "a parse failure is reported");
+      Register_Routine (T, Test_Getline_Var'Access, "getline var reads the next record");
+      Register_Routine (T, Test_Getline_Plain'Access, "plain getline advances the record");
+      Register_Routine (T, Test_RS_Char'Access, "a single-character RS splits records");
+      Register_Routine (T, Test_RS_Paragraph'Access, "RS = empty is paragraph mode");
+      Register_Routine (T, Test_OFMT'Access, "OFMT formats printed numbers");
    end Register_Tests;
 
    function Suite return AUnit.Test_Suites.Access_Test_Suite is

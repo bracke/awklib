@@ -116,7 +116,7 @@ begin
      ("README.md", "alr test",
       "README must document how to build and run the suite");
    Require_Text
-     ("README.md", "Known boundary",
+     ("README.md", "leftmost-first",
       "README must document the leftmost-first regex boundary");
    Require_Text
      ("CLAUDE.md", "not reentrant",

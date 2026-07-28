@@ -87,8 +87,13 @@ package body Awklib.Interpreter is
    Fields : Ustr_Vectors.Vector;
    NF_Val : Natural := 0;
 
+   --  The main input record stream and its cursor. Global so getline from the
+   --  main input advances the same cursor the record loop reads, and NR/FNR stay
+   --  consistent whichever advances a record.
    Records    : Ustr_Vectors.Vector;
    Main_Index : Natural := 0;
+   NR_Count   : Natural := 0;
+   FNR_Count  : Natural := 0;
 
    --  getline < file: caller-provided file contents and per-file read cursors.
    package Content_Maps is new Ada.Containers.Indefinite_Hashed_Maps
@@ -420,6 +425,88 @@ package body Awklib.Interpreter is
       end if;
       return Result;
    end Split_Lines;
+
+   --  Split input into records using the current RS. A single-character RS
+   --  (the default ASCII.LF included) splits on that character; RS = "" is
+   --  paragraph mode, where records are separated by runs of blank lines.
+   function Split_By_RS (S : String) return Ustr_Vectors.Vector is
+      RS_Str : constant String := Get_Str ("RS", "" & ASCII.LF);
+      Result : Ustr_Vectors.Vector;
+   begin
+      if S'Length = 0 then
+         return Result;
+      end if;
+
+      if RS_Str'Length = 0 then
+         --  Paragraph mode: a record is a maximal run of non-empty lines.
+         declare
+            Lines : constant Ustr_Vectors.Vector := Split_Lines (S);
+            Para  : Unbounded_String;
+            Open  : Boolean := False;
+         begin
+            for L of Lines loop
+               if Length (L) = 0 then
+                  if Open then
+                     Result.Append (Para);
+                     Para := Null_Unbounded_String;
+                     Open := False;
+                  end if;
+               else
+                  if Open then
+                     Append (Para, ASCII.LF);
+                  end if;
+                  Append (Para, L);
+                  Open := True;
+               end if;
+            end loop;
+            if Open then
+               Result.Append (Para);
+            end if;
+         end;
+      else
+         declare
+            Sep   : constant Character := RS_Str (RS_Str'First);
+            Start : Integer := S'First;
+         begin
+            for I in S'Range loop
+               if S (I) = Sep then
+                  Result.Append (To_Unbounded_String (S (Start .. I - 1)));
+                  Start := I + 1;
+               end if;
+            end loop;
+            if Start <= S'Last then
+               Result.Append (To_Unbounded_String (S (Start .. S'Last)));
+            end if;
+         end;
+      end if;
+      return Result;
+   end Split_By_RS;
+
+   --  Advance the main input cursor by one record -- shared by the record loop
+   --  and getline from the main stream, so NR/FNR stay consistent. Bumps NR/FNR
+   --  and sets either $0 (Into_Field0) or a target variable. Returns False at
+   --  the end of the current input.
+   function Advance_Main_Record (Into_Field0 : Boolean; Var : A.Expr_Access) return Boolean is
+   begin
+      if Main_Index >= Natural (Records.Length) then
+         return False;
+      end if;
+      Main_Index := Main_Index + 1;
+      NR_Count   := NR_Count + 1;
+      FNR_Count  := FNR_Count + 1;
+      Set_Scalar ("NR", V.To_Value (V.Number (NR_Count)));
+      Set_Scalar ("FNR", V.To_Value (V.Number (FNR_Count)));
+      declare
+         Line : constant String := To_String (Records.Element (Main_Index));
+      begin
+         if Into_Field0 then
+            Set_Record (Line);
+         elsif Var /= null then
+            Set_Lvalue (Var, V.Make_Strnum (Line));
+         end if;
+      end;
+      return True;
+   end Advance_Main_Record;
 
    --  Best-effort read of a real file's whole content (line-reconstructed).
    function Try_Read_File (Path : String; Content : out Unbounded_String) return Boolean is
@@ -926,8 +1013,19 @@ package body Awklib.Interpreter is
                   end if;
                   return V.To_Value (V.Number (Outcome));
                end;
+            elsif E.GL_Source = A.G_Main then
+               --  `getline` / `getline var` from the main input stream: advance
+               --  the shared cursor. Plain getline sets $0 and re-splits fields;
+               --  `getline var` sets only the variable (and NR/FNR).
+               if Advance_Main_Record
+                    (Into_Field0 => E.GL_Var = null, Var => E.GL_Var)
+               then
+                  return V.To_Value (V.Number (1));
+               else
+                  return V.To_Value (V.Number (0));
+               end if;
             else
-               --  Main-stream and command getline are not supported.
+               --  Command getline (`cmd | getline`) is not supported.
                return V.To_Value (V.Number (0));
             end if;
       end case;
@@ -963,6 +1061,28 @@ package body Awklib.Interpreter is
       end case;
    end Emit;
 
+   --  How `print` renders a value: a genuine, non-integral number goes through
+   --  OFMT; integers print plainly and everything else is its string. The
+   --  default OFMT ("%.6g") is served by Number_Image (V.As_String), which is
+   --  the correct %g rendering -- Sprintf is only used for an explicit OFMT.
+   function Output_Str (Val : V.Value) return String is
+      OFMT : constant String := Get_Str ("OFMT", "%.6g");
+      X    : Long_Float;
+   begin
+      if Val.Kind = V.Num then
+         X := Long_Float (Val.N);
+         if X = Long_Float'Truncation (X) and then abs X < 1.0E18 then
+            return V.As_String (Val);
+         elsif OFMT = "%.6g" then
+            return V.As_String (Val);
+         else
+            return Awklib.Format.Sprintf (OFMT, [1 => Val]);
+         end if;
+      else
+         return V.As_String (Val);
+      end if;
+   end Output_Str;
+
    procedure Do_Print (S : A.Stmt_Access) is
       OFS : constant String := Get_Str ("OFS", " ");
       ORS : constant String := Get_Str ("ORS", "" & ASCII.LF);
@@ -975,7 +1095,7 @@ package body Awklib.Interpreter is
             if I > 1 then
                Append (Buf, OFS);
             end if;
-            Append (Buf, Eval_Str (S.P_Args.Element (I)));
+            Append (Buf, Output_Str (Eval (S.P_Args.Element (I))));
          end loop;
       end if;
       Append (Buf, ORS);
@@ -1164,27 +1284,6 @@ package body Awklib.Interpreter is
       end case;
    end Exec;
 
-   --  Record stream -----------------------------------------------------------
-   procedure Split_Records (Input : String) is
-      RS_Str : constant String := Get_Str ("RS", "" & ASCII.LF);
-      Sep    : constant Character := (if RS_Str'Length >= 1 then RS_Str (RS_Str'First) else ASCII.LF);
-      Start  : Integer := Input'First;
-   begin
-      Records.Clear;
-      if Input'Length = 0 then
-         return;
-      end if;
-      for I in Input'Range loop
-         if Input (I) = Sep then
-            Records.Append (To_Unbounded_String (Input (Start .. I - 1)));
-            Start := I + 1;
-         end if;
-      end loop;
-      if Start <= Input'Last then
-         Records.Append (To_Unbounded_String (Input (Start .. Input'Last)));
-      end if;
-   end Split_Records;
-
    procedure Run_Action (R : A.Rule; Result : out Flow) is
    begin
       if R.Action = null then
@@ -1229,7 +1328,10 @@ package body Awklib.Interpreter is
       end loop;
       Field0 := Null_Unbounded_String;
       NF_Val := 0;
+      Records.Clear;
       Main_Index := 0;
+      NR_Count := 0;
+      FNR_Count := 0;
       Out_Buf := Null_Unbounded_String;
       Return_Value := V.Uninitialized_Value;
       Exit_Code_V := 0;
@@ -1295,22 +1397,19 @@ package body Awklib.Interpreter is
       --  runs continuously, range-pattern state (Range_Active) spans the run.
       if Has_Main_Or_End and then not Exiting and then not Runtime_Failed then
          declare
-            NR_Count : Natural := 0;
-
             procedure Process_File (FName : String; Content : String) is
-               Recs        : constant Ustr_Vectors.Vector := Split_Lines (Content);
-               FNR_Count   : Natural := 0;
                Do_Nextfile : Boolean := False;
             begin
                Set_Scalar ("FILENAME", V.To_Value (FName));
-               for RI in 1 .. Natural (Recs.Length) loop
-                  exit when Exiting or else Runtime_Failed or else Do_Nextfile;
-                  NR_Count := NR_Count + 1;
-                  FNR_Count := FNR_Count + 1;
-                  Set_Record (To_String (Recs.Element (RI)));
-                  Set_Scalar ("NR", V.To_Value (V.Number (NR_Count)));
-                  Set_Scalar ("FNR", V.To_Value (V.Number (FNR_Count)));
-
+               --  Load this file as the main record stream; FNR restarts here,
+               --  NR_Count continues across files. Advance_Main_Record (shared
+               --  with getline) reads each record and bumps NR/FNR.
+               Records := Split_By_RS (Content);
+               Main_Index := 0;
+               FNR_Count := 0;
+               while not (Exiting or else Runtime_Failed or else Do_Nextfile)
+                 and then Advance_Main_Record (Into_Field0 => True, Var => null)
+               loop
                   declare
                      Idx : Natural := 0;
                   begin
