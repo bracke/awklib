@@ -39,6 +39,27 @@ procedure Awk_Run is
       return To_String (Buf);
    end Read_File;
 
+   --  Read all of standard input. Opening "/dev/stdin" as a Stream_IO file fails
+   --  on a pipe (there is no file to open), so read the standard-input stream
+   --  directly, which works for both a redirect and a pipe.
+   function Read_Standard_Input return String is
+      use Ada.Streams;
+      S    : constant Ada.Text_IO.Text_Streams.Stream_Access :=
+        Ada.Text_IO.Text_Streams.Stream (Ada.Text_IO.Standard_Input);
+      Buf  : Unbounded_String;
+      Data : Stream_Element_Array (1 .. 65536);
+      Last : Stream_Element_Offset;
+   begin
+      loop
+         Read (S.all, Data, Last);
+         for K in 1 .. Last loop
+            Append (Buf, Character'Val (Data (K)));
+         end loop;
+         exit when Last < Data'First;
+      end loop;
+      return To_String (Buf);
+   end Read_Standard_Input;
+
    procedure Add_Assignment (Spec : String) is
       Eq : constant Natural := Ada.Strings.Fixed.Index (Spec, "=");
    begin
@@ -86,11 +107,7 @@ begin
    end loop;
 
    if not Have_Input then
-      begin
-         Input := To_Unbounded_String (Read_File ("/dev/stdin"));
-      exception
-         when others => null;
-      end;
+      Input := To_Unbounded_String (Read_Standard_Input);
    end if;
 
    declare
