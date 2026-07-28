@@ -135,27 +135,78 @@ package body Awklib.Values is
       end if;
    end Integer_Image;
 
+   --  CONVFMT/OFMT default "%.6g": six *significant* figures, C-printf %g form
+   --  (fixed when the exponent is in [-4, 6), else scientific), trailing zeros
+   --  stripped.
    function Format_G6 (X : Long_Float) return String is
-      Buf   : String (1 .. 128);
-      First : Integer;
-      Last  : Integer;
-   begin
-      Ada.Long_Float_Text_IO.Put (Buf, X, Aft => 6, Exp => 0);
-      First := Buf'First;
-      while First <= Buf'Last and then Buf (First) = ' ' loop
-         First := First + 1;
-      end loop;
-      Last := Buf'Last;
-      --  Strip trailing zeros and a dangling decimal point.
-      if (for some K in First .. Last => Buf (K) = '.') then
-         while Last > First and then Buf (Last) = '0' loop
-            Last := Last - 1;
+      P    : constant Natural := 6;
+      Sign : constant String := (if X < 0.0 then "-" else "");
+      Mag  : constant Long_Float := abs X;
+
+      function Trim (S : String) return String is
+         F : Integer := S'First;
+      begin
+         while F <= S'Last and then S (F) = ' ' loop
+            F := F + 1;
          end loop;
-         if Last > First and then Buf (Last) = '.' then
-            Last := Last - 1;
+         return S (F .. S'Last);
+      end Trim;
+
+      function Fixed (M : Long_Float; Prec : Natural) return String is
+         Buf : String (1 .. 128);
+      begin
+         if Prec = 0 then
+            return Integer_Image (Long_Long_Integer (Long_Float'Unbiased_Rounding (M)));
          end if;
+         Ada.Long_Float_Text_IO.Put (Buf, M, Aft => Prec, Exp => 0);
+         return Trim (Buf);
+      end Fixed;
+
+      function Strip (S : String) return String is
+         Last : Integer := S'Last;
+      begin
+         if (for some K in S'Range => S (K) = '.') then
+            while Last > S'First and then S (Last) = '0' loop
+               Last := Last - 1;
+            end loop;
+            if Last >= S'First and then S (Last) = '.' then
+               Last := Last - 1;
+            end if;
+         end if;
+         return S (S'First .. Last);
+      end Strip;
+
+      M     : Long_Float := Mag;
+      E     : Integer := 0;
+      Scale : constant Long_Float := 10.0 ** (P - 1);
+   begin
+      if Mag = 0.0 then
+         return "0";
       end if;
-      return Buf (First .. Last);
+      while M >= 10.0 loop
+         M := M / 10.0;
+         E := E + 1;
+      end loop;
+      while M < 1.0 loop
+         M := M * 10.0;
+         E := E - 1;
+      end loop;
+      M := Long_Float'Rounding (M * Scale) / Scale;
+      if M >= 10.0 then
+         M := M / 10.0;
+         E := E + 1;
+      end if;
+      if E < -4 or else E >= P then
+         declare
+            Es : constant String := Integer_Image (Long_Long_Integer (abs E));
+            Ep : constant String := (if Es'Length < 2 then "0" & Es else Es);
+         begin
+            return Sign & Strip (Fixed (M, P - 1)) & "e"
+              & (if E < 0 then "-" else "+") & Ep;
+         end;
+      else
+         return Sign & Strip (Fixed (Mag, P - 1 - E));
+      end if;
    end Format_G6;
 
    function Number_Image (Item : Number) return String is

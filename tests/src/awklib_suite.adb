@@ -14,6 +14,7 @@ package body Awklib_Suite is
    use type I.Run_Status;
 
    LF : constant String := [1 => ASCII.LF];
+   HT : constant String := [1 => ASCII.HT];
 
    --  Run PROGRAM over INPUT with no seeded variables and return captured stdout.
    function Awk (Program : String; Input : String := "") return String is
@@ -35,6 +36,49 @@ package body Awklib_Suite is
          Message        => Message);
       return U.To_String (Output);
    end Awk;
+
+   function Pair (Name, Value : String) return I.Var_Assignment is
+     (I.Var_Assignment'(Name  => U.To_Unbounded_String (Name),
+                        Value => U.To_Unbounded_String (Value)));
+
+   --  Run PROGRAM with one named file available to `getline < name`.
+   function Awk_With_File
+     (Program, File_Name, File_Content : String) return String
+   is
+      Empty     : I.Assignment_Vectors.Vector;
+      Files     : I.Assignment_Vectors.Vector;
+      Output    : U.Unbounded_String;
+      Message   : U.Unbounded_String;
+      Exit_Code : Integer;
+      Status    : I.Run_Status;
+   begin
+      Files.Append (Pair (File_Name, File_Content));
+      I.Run
+        (Program_Source => Program, Input => "", Assignments => Empty,
+         Environment => Empty, Filename => "test", Output => Output,
+         Exit_Code => Exit_Code, Status => Status, Message => Message,
+         Files => Files);
+      return U.To_String (Output);
+   end Awk_With_File;
+
+   --  Run PROGRAM over two named input files (for FILENAME/FNR/NR).
+   function Awk_Two_Files (Program, N1, C1, N2, C2 : String) return String is
+      Empty     : I.Assignment_Vectors.Vector;
+      Inputs    : I.Assignment_Vectors.Vector;
+      Output    : U.Unbounded_String;
+      Message   : U.Unbounded_String;
+      Exit_Code : Integer;
+      Status    : I.Run_Status;
+   begin
+      Inputs.Append (Pair (N1, C1));
+      Inputs.Append (Pair (N2, C2));
+      I.Run
+        (Program_Source => Program, Input => "", Assignments => Empty,
+         Environment => Empty, Filename => "test", Output => Output,
+         Exit_Code => Exit_Code, Status => Status, Message => Message,
+         Input_Files => Inputs);
+      return U.To_String (Output);
+   end Awk_Two_Files;
 
    procedure Test_Begin (T : in out AUnit.Test_Cases.Test_Case'Class) is
       pragma Unreferenced (T);
@@ -273,6 +317,169 @@ package body Awklib_Suite is
       Assert (Awk ("BEGIN { printf ""%.0f"", 2.5 }") = "2", "%.0f rounds half to even");
    end Test_Printf_F0;
 
+   procedure Test_Control_Flow (T : in out AUnit.Test_Cases.Test_Case'Class) is
+      pragma Unreferenced (T);
+   begin
+      Assert (Awk ("BEGIN { if (3 > 2) print ""y""; else print ""n"" }") = "y" & LF, "if/else");
+      Assert (Awk ("BEGIN { i = 0; while (i < 3) { print i; i++ } }") = "0" & LF & "1" & LF & "2" & LF,
+              "while");
+      Assert (Awk ("BEGIN { i = 0; do { print i; i++ } while (i < 3) }") = "0" & LF & "1" & LF & "2" & LF,
+              "do-while");
+      Assert (Awk ("BEGIN { for (i = 0; i < 3; i++) print i }") = "0" & LF & "1" & LF & "2" & LF,
+              "for");
+      Assert
+        (Awk ("BEGIN { for (i = 0; i < 5; i++) { if (i == 2) continue; if (i == 4) break; print i } }")
+           = "0" & LF & "1" & LF & "3" & LF,
+         "break and continue");
+      Assert (Awk ("NR == 2 { next } { print }", "a" & LF & "b" & LF & "c" & LF) = "a" & LF & "c" & LF,
+              "next skips a record");
+   end Test_Control_Flow;
+
+   procedure Test_Math (T : in out AUnit.Test_Cases.Test_Case'Class) is
+      pragma Unreferenced (T);
+   begin
+      Assert (Awk ("BEGIN { print int(3.9), int(-3.9) }") = "3 -3" & LF, "int truncates toward zero");
+      Assert (Awk ("BEGIN { print sqrt(16) }") = "4" & LF, "sqrt");
+      Assert (Awk ("BEGIN { printf ""%.4f %.4f"", sin(1), cos(1) }") = "0.8415 0.5403", "sin/cos");
+      Assert (Awk ("BEGIN { printf ""%.4f %.4f"", exp(1), log(10) }") = "2.7183 2.3026", "exp/log");
+      Assert (Awk ("BEGIN { printf ""%.4f"", atan2(1, 1) }") = "0.7854", "atan2");
+   end Test_Math;
+
+   procedure Test_Rand (T : in out AUnit.Test_Cases.Test_Case'Class) is
+      pragma Unreferenced (T);
+   begin
+      Assert (Awk ("BEGIN { srand(1); r = rand(); print (r >= 0 && r < 1) }") = "1" & LF,
+              "rand is in [0, 1)");
+      Assert (Awk ("BEGIN { srand(7); a = rand(); srand(7); b = rand(); print (a == b) }") = "1" & LF,
+              "srand makes rand reproducible");
+   end Test_Rand;
+
+   procedure Test_Arrays (T : in out AUnit.Test_Cases.Test_Case'Class) is
+      pragma Unreferenced (T);
+   begin
+      Assert (Awk ("BEGIN { a[""x""] = 1; a[""y""] = 2; for (k in a) s += a[k]; print s }") = "3" & LF,
+              "associative array and for-in");
+      Assert (Awk ("BEGIN { a[""x""] = 1; delete a[""x""]; print (""x"" in a) }") = "0" & LF,
+              "delete an element");
+      Assert (Awk ("BEGIN { a[""x""] = 1; print (""x"" in a), (""y"" in a) }") = "1 0" & LF,
+              "the in operator");
+      Assert
+        (Awk ("BEGIN { a[1, 2] = 9; for (k in a) { split(k, p, SUBSEP); print p[1], p[2], a[k] } }")
+           = "1 2 9" & LF,
+         "multi-dimensional subscripts via SUBSEP");
+   end Test_Arrays;
+
+   procedure Test_Functions (T : in out AUnit.Test_Cases.Test_Case'Class) is
+      pragma Unreferenced (T);
+   begin
+      Assert (Awk ("function sq(n) { return n * n } BEGIN { print sq(5) }") = "25" & LF,
+              "a user function returns a value");
+      Assert
+        (Awk ("function f(n) { return n <= 1 ? 1 : n * f(n - 1) } BEGIN { print f(5) }") = "120" & LF,
+         "recursion");
+      Assert
+        (Awk ("function g(n,   loc) { loc = n + 1; return loc } BEGIN { loc = 99; print g(1), loc }")
+           = "2 99" & LF,
+         "an extra parameter is a local variable");
+   end Test_Functions;
+
+   procedure Test_Operators (T : in out AUnit.Test_Cases.Test_Case'Class) is
+      pragma Unreferenced (T);
+   begin
+      Assert (Awk ("BEGIN { x = 5; print x++, x, --x }") = "5 6 5" & LF, "increment and decrement");
+      Assert (Awk ("BEGIN { x = 10; x += 5; x *= 2; print x }") = "30" & LF, "compound assignment");
+      Assert (Awk ("BEGIN { print (1 > 2) ? ""a"" : ""b"" }") = "b" & LF, "the ternary operator");
+      Assert (Awk ("BEGIN { print 2 ^ 10 }") = "1024" & LF, "exponentiation");
+      Assert (Awk ("BEGIN { print (1 && 0), (1 || 0), (! 1) }") = "0 1 0" & LF, "logical operators");
+      Assert (Awk ("BEGIN { x = ""ab""; y = ""cd""; print x y }") = "abcd" & LF, "string concatenation");
+      Assert (Awk ("{ print ($1 ~ /^[0-9]+$/), ($1 !~ /x/) }", "42" & LF) = "1 1" & LF, "match operators");
+   end Test_Operators;
+
+   procedure Test_Fields (T : in out AUnit.Test_Cases.Test_Case'Class) is
+      pragma Unreferenced (T);
+   begin
+      Assert (Awk ("{ $2 = ""X""; print }", "a b c" & LF) = "a X c" & LF, "assigning a field rebuilds $0");
+      Assert (Awk ("{ NF = 2; print }", "a b c d" & LF) = "a b" & LF, "lowering NF truncates the record");
+      Assert (Awk ("{ $0 = ""x y z""; print NF, $2 }", "a b" & LF) = "3 y" & LF,
+              "assigning $0 re-splits the fields");
+      Assert (Awk ("{ i = 2; print $(i) }", "a b c" & LF) = "b" & LF, "a computed field index");
+   end Test_Fields;
+
+   procedure Test_Field_Splitting (T : in out AUnit.Test_Cases.Test_Case'Class) is
+      pragma Unreferenced (T);
+   begin
+      Assert (Awk ("BEGIN { FS = ""\t"" } { print $2 }", "a" & HT & "b" & HT & "c" & LF) = "b" & LF,
+              "a tab field separator");
+      Assert (Awk ("BEGIN { FS = ""[0-9]+"" } { print $2 }", "a12b34c" & LF) = "b" & LF,
+              "a regular-expression field separator");
+      Assert (Awk ("{ print $1 }", "   leading   spaces  " & LF) = "leading" & LF,
+              "the default separator ignores leading blanks");
+   end Test_Field_Splitting;
+
+   procedure Test_String_Functions (T : in out AUnit.Test_Cases.Test_Case'Class) is
+      pragma Unreferenced (T);
+   begin
+      Assert (Awk ("{ n = split($0, a); print n, a[1], a[3] }", "x y z" & LF) = "3 x z" & LF,
+              "split on the default separator");
+      Assert (Awk ("BEGIN { print index(""hello"", ""ll""), index(""hello"", ""z"") }") = "3 0" & LF,
+              "index");
+      Assert
+        (Awk ("BEGIN { print match(""foobar"", /o+/), RSTART, RLENGTH }") = "2 2 2" & LF,
+         "match sets RSTART and RLENGTH");
+      Assert (Awk ("BEGIN { s = ""hello""; n = sub(/l/, ""L"", s); print s, n }") = "heLlo 1" & LF,
+              "sub replaces the first match and returns the count");
+      Assert (Awk ("BEGIN { print tolower(""HeLLo"") }") = "hello" & LF, "tolower");
+      Assert (Awk ("BEGIN { print sprintf(""%d/%s"", 7, ""x"") }") = "7/x" & LF, "sprintf");
+   end Test_String_Functions;
+
+   procedure Test_Getline_File (T : in out AUnit.Test_Cases.Test_Case'Class) is
+      pragma Unreferenced (T);
+   begin
+      Assert
+        (Awk_With_File
+           ("BEGIN { while ((getline l < ""data"") > 0) print ""g:"" l }",
+            "data", "one" & LF & "two" & LF)
+           = "g:one" & LF & "g:two" & LF,
+         "getline < file reads a named file");
+   end Test_Getline_File;
+
+   procedure Test_Multi_File (T : in out AUnit.Test_Cases.Test_Case'Class) is
+      pragma Unreferenced (T);
+   begin
+      Assert
+        (Awk_Two_Files
+           ("{ print FILENAME, FNR, NR }", "f1", "a" & LF & "b" & LF, "f2", "c" & LF)
+           = "f1 1 1" & LF & "f1 2 2" & LF & "f2 1 3" & LF,
+         "FILENAME and FNR track each file while NR runs continuously");
+   end Test_Multi_File;
+
+   procedure Test_Printf_Flags (T : in out AUnit.Test_Cases.Test_Case'Class) is
+      pragma Unreferenced (T);
+   begin
+      Assert (Awk ("BEGIN { printf ""[%-5d][%05d][%+d][% d]"", 3, 3, 3, 3 }") = "[3    ][00003][+3][ 3]",
+              "printf flags");
+      Assert (Awk ("BEGIN { printf ""[%*d]"", 5, 42 }") = "[   42]", "printf dynamic (*) width");
+      Assert (Awk ("BEGIN { printf ""%o %x %c"", 8, 255, 65 }") = "10 ff A", "printf %o/%x/%c");
+   end Test_Printf_Flags;
+
+   procedure Test_Coercion (T : in out AUnit.Test_Cases.Test_Case'Class) is
+      pragma Unreferenced (T);
+   begin
+      Assert (Awk ("BEGIN { x = ""3abc""; print x + 2 }") = "5" & LF, "a leading numeric prefix coerces");
+      Assert (Awk ("BEGIN { print x + 0, ""["" x ""]"" }") = "0 []" & LF, "an uninitialised variable is 0/empty");
+      Assert (Awk ("BEGIN { print (""10"" < ""9""), (10 < 9) }") = "1 0" & LF,
+              "string compares lexically, numbers numerically");
+      Assert (Awk ("BEGIN { print substr(""hello"", -1, 3), substr(""hello"", 2, 100) }") = "h ello" & LF,
+              "substr clamps out-of-range positions");
+   end Test_Coercion;
+
+   procedure Test_Escapes (T : in out AUnit.Test_Cases.Test_Case'Class) is
+      pragma Unreferenced (T);
+   begin
+      Assert (Awk ("BEGIN { print ""a\tb"" }") = "a" & HT & "b" & LF, "a tab escape in a string literal");
+      Assert (Awk ("BEGIN { printf ""x\ny\n"" }") = "x" & LF & "y" & LF, "newline escapes in printf");
+   end Test_Escapes;
+
    type Awklib_Test_Case is new AUnit.Test_Cases.Test_Case with null record;
 
    overriding function Name (T : Awklib_Test_Case) return AUnit.Message_String;
@@ -313,6 +520,20 @@ package body Awklib_Suite is
       Register_Routine (T, Test_Printf_Sci'Access, "printf %e/%E are C-style");
       Register_Routine (T, Test_Printf_G'Access, "printf %g is C-style");
       Register_Routine (T, Test_Printf_F0'Access, "printf %.0f rounds");
+      Register_Routine (T, Test_Control_Flow'Access, "control flow (if/while/for/next)");
+      Register_Routine (T, Test_Math'Access, "math builtins");
+      Register_Routine (T, Test_Rand'Access, "rand/srand");
+      Register_Routine (T, Test_Arrays'Access, "arrays, for-in, delete, in, SUBSEP");
+      Register_Routine (T, Test_Functions'Access, "user functions, recursion, locals");
+      Register_Routine (T, Test_Operators'Access, "operators");
+      Register_Routine (T, Test_Fields'Access, "field assignment and $0 rebuilding");
+      Register_Routine (T, Test_Field_Splitting'Access, "FS variants");
+      Register_Routine (T, Test_String_Functions'Access, "split/index/match/sub/tolower/sprintf");
+      Register_Routine (T, Test_Getline_File'Access, "getline < file");
+      Register_Routine (T, Test_Multi_File'Access, "multi-file FILENAME/FNR/NR");
+      Register_Routine (T, Test_Printf_Flags'Access, "printf flags, width, %o/%x/%c");
+      Register_Routine (T, Test_Coercion'Access, "strnum coercion and substr clamping");
+      Register_Routine (T, Test_Escapes'Access, "string escapes");
    end Register_Tests;
 
    function Suite return AUnit.Test_Suites.Access_Test_Suite is

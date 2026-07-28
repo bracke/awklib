@@ -4,6 +4,7 @@ with Ada.Strings.Hash;
 with Ada.Strings.Unbounded;   use Ada.Strings.Unbounded;
 with Ada.Characters.Handling;
 with Ada.Numerics.Generic_Elementary_Functions;
+with Ada.Numerics.Float_Random;
 with Ada.Text_IO;
 with Awklib.Ast;
 with Awklib.Values;
@@ -28,6 +29,10 @@ package body Awklib.Interpreter is
    use type Awklib.Parser.Result_Status;
 
    package LF_Math is new Ada.Numerics.Generic_Elementary_Functions (Long_Float);
+
+   package Float_Rng renames Ada.Numerics.Float_Random;
+   Rand_Gen  : Float_Rng.Generator;
+   Rand_Seed : Integer := 0;
 
    --  AWK's '%' is C fmod (truncated remainder), not IEEE round-to-nearest.
    function Fmod (L, R : V.Number) return V.Number is
@@ -791,11 +796,50 @@ package body Awklib.Interpreter is
          when A.B_Toupper =>
             return V.To_Value (Ada.Characters.Handling.To_Upper (Eval_Str (Arg (1))));
 
-         when A.B_Sin | A.B_Cos | A.B_Exp | A.B_Log | A.B_Sqrt | A.B_Atan2
-            | A.B_Rand | A.B_Srand =>
-            --  Math builtins are unused by the target programs; provide stable
-            --  stubs rather than pulling in elementary-function dependencies.
-            return V.To_Value (V.Number (0));
+         when A.B_Sin =>
+            return V.To_Value (V.Number (LF_Math.Sin (Long_Float (Eval_Num (Arg (1))))));
+         when A.B_Cos =>
+            return V.To_Value (V.Number (LF_Math.Cos (Long_Float (Eval_Num (Arg (1))))));
+         when A.B_Exp =>
+            begin
+               return V.To_Value (V.Number (LF_Math.Exp (Long_Float (Eval_Num (Arg (1))))));
+            exception
+               when others => return V.To_Value (V.Number (0));
+            end;
+         when A.B_Log =>
+            begin
+               return V.To_Value (V.Number (LF_Math.Log (Long_Float (Eval_Num (Arg (1))))));
+            exception
+               when others => return V.To_Value (V.Number (0));
+            end;
+         when A.B_Sqrt =>
+            begin
+               return V.To_Value (V.Number (LF_Math.Sqrt (Long_Float (Eval_Num (Arg (1))))));
+            exception
+               when others => return V.To_Value (V.Number (0));
+            end;
+         when A.B_Atan2 =>
+            begin
+               return V.To_Value
+                 (V.Number (LF_Math.Arctan (Long_Float (Eval_Num (Arg (1))),
+                                            Long_Float (Eval_Num (Arg (2))))));
+            exception
+               when others => return V.To_Value (V.Number (0));
+            end;
+         when A.B_Rand =>
+            return V.To_Value (V.Number (Long_Float (Float_Rng.Random (Rand_Gen))));
+         when A.B_Srand =>
+            declare
+               Prev : constant Integer := Rand_Seed;
+            begin
+               if Args.Is_Empty then
+                  Rand_Seed := Rand_Seed + 1;
+               else
+                  Rand_Seed := Integer (V.Number'Truncation (Eval_Num (Arg (1))));
+               end if;
+               Float_Rng.Reset (Rand_Gen, Rand_Seed);
+               return V.To_Value (V.Number (Prev));
+            end;
 
          when A.B_System =>
             return V.To_Value (V.Number (-1));   --  command execution unsupported
@@ -1062,21 +1106,17 @@ package body Awklib.Interpreter is
    end Emit;
 
    --  How `print` renders a value: a genuine, non-integral number goes through
-   --  OFMT; integers print plainly and everything else is its string. The
-   --  default OFMT ("%.6g") is served by Number_Image (V.As_String), which is
-   --  the correct %g rendering -- Sprintf is only used for an explicit OFMT.
+   --  OFMT (default "%.6g" -- six significant figures); integers print plainly,
+   --  and everything else is its string.
    function Output_Str (Val : V.Value) return String is
-      OFMT : constant String := Get_Str ("OFMT", "%.6g");
-      X    : Long_Float;
+      X : Long_Float;
    begin
       if Val.Kind = V.Num then
          X := Long_Float (Val.N);
          if X = Long_Float'Truncation (X) and then abs X < 1.0E18 then
             return V.As_String (Val);
-         elsif OFMT = "%.6g" then
-            return V.As_String (Val);
          else
-            return Awklib.Format.Sprintf (OFMT, [1 => Val]);
+            return Awklib.Format.Sprintf (Get_Str ("OFMT", "%.6g"), [1 => Val]);
          end if;
       else
          return V.As_String (Val);
