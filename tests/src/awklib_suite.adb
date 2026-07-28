@@ -403,6 +403,9 @@ package body Awklib_Suite is
       Assert (Awk ("BEGIN { x = 10; x += 5; x *= 2; print x }") = "30" & LF, "compound assignment");
       Assert (Awk ("BEGIN { print (1 > 2) ? ""a"" : ""b"" }") = "b" & LF, "the ternary operator");
       Assert (Awk ("BEGIN { print 2 ^ 10 }") = "1024" & LF, "exponentiation");
+      Assert (Awk ("BEGIN { print 2 ** 10 }") = "1024" & LF, "** is an alias for ^");
+      Assert (Awk ("BEGIN { print 2 ** 3 ** 2 }") = "512" & LF, "** is right-associative like ^");
+      Assert (Awk ("BEGIN { x = 3; x **= 2; print x }") = "9" & LF, "**= is an alias for ^=");
       Assert (Awk ("BEGIN { print (1 && 0), (1 || 0), (! 1) }") = "0 1 0" & LF, "logical operators");
       Assert (Awk ("BEGIN { x = ""ab""; y = ""cd""; print x y }") = "abcd" & LF, "string concatenation");
       Assert (Awk ("{ print ($1 ~ /^[0-9]+$/), ($1 !~ /x/) }", "42" & LF) = "1 1" & LF, "match operators");

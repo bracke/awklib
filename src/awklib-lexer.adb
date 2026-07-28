@@ -245,8 +245,13 @@ package body Awklib.Lexer is
                --  Operators and punctuation. Longest match first.
                declare
                   C2 : constant Character := (if I < Last then Source (I + 1) else ASCII.NUL);
+                  C3 : constant Character := (if I + 1 < Last then Source (I + 2) else ASCII.NUL);
                begin
-                  if C = '+' and then C2 = '+' then Emit (Tok_Incr); I := I + 2;
+                  --  `**` and `**=` are the common awk aliases for `^` and `^=`.
+                  if C = '*' and then C2 = '*' and then C3 = '=' then
+                     Emit (Tok_Pow_Assign); I := I + 3;
+                  elsif C = '*' and then C2 = '*' then Emit (Tok_Caret); I := I + 2;
+                  elsif C = '+' and then C2 = '+' then Emit (Tok_Incr); I := I + 2;
                   elsif C = '-' and then C2 = '-' then Emit (Tok_Decr); I := I + 2;
                   elsif C = '+' and then C2 = '=' then Emit (Tok_Add_Assign); I := I + 2;
                   elsif C = '-' and then C2 = '=' then Emit (Tok_Sub_Assign); I := I + 2;

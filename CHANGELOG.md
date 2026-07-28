@@ -17,6 +17,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   filesystem — symmetric with the in-memory `Files`/`Input_Files` input.
 - Math builtins `sqrt`, `sin`, `cos`, `exp`, `log`, `atan2`, `rand`, and `srand`,
   which were previously stubs returning 0.
+- `**` and `**=` as aliases for the `^` and `^=` exponentiation operators, the way
+  one-true-awk and gawk accept them.
 
 ### Changed
 
