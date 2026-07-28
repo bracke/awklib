@@ -1,0 +1,32 @@
+name = "awklib_tests"
+description = "Standalone testsuite for the awklib crate"
+version = "0.1.0-dev"
+
+authors = ["Bent Bracke"]
+maintainers = ["Bent Bracke <bent@bracke.dk>"]
+maintainers-logins = ["bracke"]
+licenses = "MIT"
+tags = ["tests"]
+
+executables = ["awklib_tests"]
+
+[[depends-on]]
+gnat_native = "=15.2.1"
+
+[[depends-on]]
+awklib = "*"
+
+[[pins]]
+awklib = { path = ".." }
+
+[[depends-on]]
+regexp = "*"
+
+[[pins]]
+regexp = { path = "../../regexp" }
+
+[[depends-on]]
+aunit = "^26.0.0"
+
+[build-profiles]
+"*" = "development"

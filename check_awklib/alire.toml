@@ -1,0 +1,24 @@
+name = "check_awklib"
+description = "Release and documentation checks for awklib"
+version = "0.1.0-dev"
+
+authors = ["Bent Bracke"]
+maintainers = ["Bent Bracke <bent@bracke.dk>"]
+maintainers-logins = ["bracke"]
+licenses = "MIT"
+website = ""
+tags = ["tool", "release", "check"]
+
+executables = ["check_awklib"]
+
+[[depends-on]]
+gnat_native = "=15.2.1"
+
+[[depends-on]]
+project_tools = "*"
+
+[[pins]]
+project_tools = { path = "../../project_tools" }
+
+[build-profiles]
+"*" = "development"

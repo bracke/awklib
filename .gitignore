@@ -11,5 +11,18 @@
 /tests/config/
 /tests/obj/
 /tests/bin/
+/tests/alire.lock
 /cli/obj/
 /cli/bin/
+
+# Release-checker crates (generated Alire artifacts)
+/tools/obj/
+/tools/bin/
+/tools/alire/
+/tools/config/
+/tools/alire.lock
+/check_awklib/obj/
+/check_awklib/bin/
+/check_awklib/alire/
+/check_awklib/config/
+/check_awklib/alire.lock

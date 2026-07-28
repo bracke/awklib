@@ -1,0 +1,91 @@
+name: ci
+
+# Builds awklib and runs its AUnit suite on Linux, macOS and Windows, then runs the
+# project_tools-based release checklist on Linux. awklib is pure Ada over the sibling
+# regexp engine, so the matrix checks out regexp beside it.
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build-and-test:
+    name: build-and-test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    env:
+      ALIRE_NONINTERACTIVE: "true"
+    strategy:
+      fail-fast: false
+      matrix:
+        # An x86_64 macOS image is required: gnat_native=15.2.1 ships no
+        # aarch64-darwin binary, so macos-latest (arm64) cannot resolve the pin.
+        os: [ubuntu-latest, macos-15-intel, windows-latest]
+    steps:
+      - name: Check out awklib
+        uses: actions/checkout@v7
+        with:
+          path: awklib
+      - name: Check out regexp sibling
+        uses: actions/checkout@v7
+        with:
+          repository: ${{ github.repository_owner }}/regexp
+          path: regexp
+      - name: Set up Alire
+        uses: alire-project/setup-alire@v6
+        with:
+          toolchain: gnat_native=15.2.1 gprbuild
+      - name: Build the library
+        shell: bash
+        working-directory: awklib
+        run: alr --non-interactive build
+      - name: Build and run the test suite
+        shell: bash
+        working-directory: awklib/tests
+        run: |
+          alr --non-interactive build
+          # The binary is awklib_tests.exe on Windows.
+          if [ -f ./bin/awklib_tests.exe ]; then
+            ./bin/awklib_tests.exe
+          else
+            ./bin/awklib_tests
+          fi
+
+  # The release checklist (tools/bin/check_all) drives the project_tools-based
+  # check_awklib checker: manifest pins, required docs, and a library+suite build.
+  # Linux-only -- it validates the release gate, not per-host behaviour, which the
+  # matrix above covers.
+  linux-release-check:
+    name: Linux release checklist
+    runs-on: ubuntu-latest
+    env:
+      ALIRE_NONINTERACTIVE: "true"
+    steps:
+      - name: Check out awklib
+        uses: actions/checkout@v7
+        with:
+          path: awklib
+      - name: Check out regexp sibling
+        uses: actions/checkout@v7
+        with:
+          repository: ${{ github.repository_owner }}/regexp
+          path: regexp
+      - name: Check out project_tools sibling
+        uses: actions/checkout@v7
+        with:
+          repository: ${{ github.repository_owner }}/project_tools
+          path: project_tools
+      - name: Set up Alire
+        uses: alire-project/setup-alire@v6
+        with:
+          toolchain: gnat_native=15.2.1 gprbuild
+      - name: Build aggregate release checker
+        working-directory: awklib/tools
+        run: alr --non-interactive build
+      - name: Self-test aggregate release checker
+        working-directory: awklib
+        run: tools/bin/check_all_selftest
+      - name: Run aggregate release checker
+        working-directory: awklib
+        run: tools/bin/check_all
