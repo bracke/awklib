@@ -3,7 +3,6 @@ with AUnit.Assertions;
 with AUnit.Test_Cases;
 
 with Ada.Directories;
-with Ada.Streams.Stream_IO;
 with Ada.Strings.Unbounded;
 
 with Awklib.Interpreter;
@@ -19,30 +18,11 @@ package body Awklib_Suite is
    HT : constant String := [1 => ASCII.HT];
    DQ : constant String := [1 => '"'];
 
-   --  Read a file back byte-for-byte (Stream_IO, so embedded newlines are not
-   --  reinterpreted) -- used to check output redirection.
-   function Read_File_Bytes (Path : String) return String is
-      use Ada.Streams;
-      package SIO renames Ada.Streams.Stream_IO;
-      F      : SIO.File_Type;
-      Buf    : Stream_Element_Array (1 .. 4096);
-      Last   : Stream_Element_Offset;
-      Result : U.Unbounded_String;
-   begin
-      SIO.Open (F, SIO.In_File, Path);
-      while not SIO.End_Of_File (F) loop
-         SIO.Read (F, Buf, Last);
-         for K in 1 .. Last loop
-            U.Append (Result, Character'Val (Buf (K)));
-         end loop;
-      end loop;
-      SIO.Close (F);
-      return U.To_String (Result);
-   end Read_File_Bytes;
 
    --  Run PROGRAM over INPUT with no seeded variables and return captured stdout.
    function Awk (Program : String; Input : String := "") return String is
       Empty     : I.Assignment_Vectors.Vector;
+      Written   : I.Assignment_Vectors.Vector;
       Output    : U.Unbounded_String;
       Message   : U.Unbounded_String;
       Exit_Code : Integer;
@@ -57,7 +37,8 @@ package body Awklib_Suite is
          Output         => Output,
          Exit_Code      => Exit_Code,
          Status         => Status,
-         Message        => Message);
+         Message        => Message,
+         Output_Files   => Written);
       return U.To_String (Output);
    end Awk;
 
@@ -70,6 +51,7 @@ package body Awklib_Suite is
      (Program, File_Name, File_Content : String) return String
    is
       Empty     : I.Assignment_Vectors.Vector;
+      Written   : I.Assignment_Vectors.Vector;
       Files     : I.Assignment_Vectors.Vector;
       Output    : U.Unbounded_String;
       Message   : U.Unbounded_String;
@@ -81,13 +63,14 @@ package body Awklib_Suite is
         (Program_Source => Program, Input => "", Assignments => Empty,
          Environment => Empty, Filename => "test", Output => Output,
          Exit_Code => Exit_Code, Status => Status, Message => Message,
-         Files => Files);
+         Output_Files => Written, Files => Files);
       return U.To_String (Output);
    end Awk_With_File;
 
    --  Run PROGRAM over two named input files (for FILENAME/FNR/NR).
    function Awk_Two_Files (Program, N1, C1, N2, C2 : String) return String is
       Empty     : I.Assignment_Vectors.Vector;
+      Written   : I.Assignment_Vectors.Vector;
       Inputs    : I.Assignment_Vectors.Vector;
       Output    : U.Unbounded_String;
       Message   : U.Unbounded_String;
@@ -100,7 +83,7 @@ package body Awklib_Suite is
         (Program_Source => Program, Input => "", Assignments => Empty,
          Environment => Empty, Filename => "test", Output => Output,
          Exit_Code => Exit_Code, Status => Status, Message => Message,
-         Input_Files => Inputs);
+         Output_Files => Written, Input_Files => Inputs);
       return U.To_String (Output);
    end Awk_Two_Files;
 
@@ -212,6 +195,7 @@ package body Awklib_Suite is
       pragma Unreferenced (T);
       Assigns   : I.Assignment_Vectors.Vector;
       Empty     : I.Assignment_Vectors.Vector;
+      Written   : I.Assignment_Vectors.Vector;
       Output    : U.Unbounded_String;
       Message   : U.Unbounded_String;
       Exit_Code : Integer;
@@ -229,7 +213,8 @@ package body Awklib_Suite is
          Output         => Output,
          Exit_Code      => Exit_Code,
          Status         => Status,
-         Message        => Message);
+         Message        => Message,
+         Output_Files   => Written);
       Assert (Status = I.Run_Ok, "seeded run succeeds");
       Assert (U.To_String (Output) = "8" & LF, "a seeded variable is a numeric strnum");
    end Test_Seeded_Variable;
@@ -237,6 +222,7 @@ package body Awklib_Suite is
    procedure Test_Exit_Code (T : in out AUnit.Test_Cases.Test_Case'Class) is
       pragma Unreferenced (T);
       Empty     : I.Assignment_Vectors.Vector;
+      Written   : I.Assignment_Vectors.Vector;
       Output    : U.Unbounded_String;
       Message   : U.Unbounded_String;
       Exit_Code : Integer;
@@ -251,7 +237,8 @@ package body Awklib_Suite is
          Output         => Output,
          Exit_Code      => Exit_Code,
          Status         => Status,
-         Message        => Message);
+         Message        => Message,
+         Output_Files   => Written);
       Assert (Status = I.Run_Ok, "exit is a clean run, not an error");
       Assert (Exit_Code = 3, "exit N is reported as the exit code");
    end Test_Exit_Code;
@@ -259,6 +246,7 @@ package body Awklib_Suite is
    procedure Test_Parse_Error (T : in out AUnit.Test_Cases.Test_Case'Class) is
       pragma Unreferenced (T);
       Empty     : I.Assignment_Vectors.Vector;
+      Written   : I.Assignment_Vectors.Vector;
       Output    : U.Unbounded_String;
       Message   : U.Unbounded_String;
       Exit_Code : Integer;
@@ -273,7 +261,8 @@ package body Awklib_Suite is
          Output         => Output,
          Exit_Code      => Exit_Code,
          Status         => Status,
-         Message        => Message);
+         Message        => Message,
+         Output_Files   => Written);
       Assert (Status = I.Run_Error, "an unterminated block is a run error");
       Assert (U.Length (Message) > 0, "a parse failure carries a message");
    end Test_Parse_Error;
@@ -517,26 +506,48 @@ package body Awklib_Suite is
 
    procedure Test_Redirect (T : in out AUnit.Test_Cases.Test_Case'Class) is
       pragma Unreferenced (T);
-      Path      : constant String := "awklib_redirect.tmp";
+      One       : constant String := "awklib_redirect_one.tmp";
+      Two       : constant String := "awklib_redirect_two.tmp";
       Empty     : I.Assignment_Vectors.Vector;
+      Written   : I.Assignment_Vectors.Vector;
       Output    : U.Unbounded_String;
       Message   : U.Unbounded_String;
       Exit_Code : Integer;
       Status    : I.Run_Status;
+      --  ">" truncates then appends to the same stream; ">>" appends. All of it
+      --  must be captured in memory, so a second target proves ordering too.
       Program   : constant String :=
-        "BEGIN { print " & DQ & "a" & DQ & " > " & DQ & Path & DQ
-        & "; print " & DQ & "b" & DQ & " > " & DQ & Path & DQ & " }";
+        "BEGIN {"
+        & " print " & DQ & "a" & DQ & " > "  & DQ & One & DQ & ";"
+        & " print " & DQ & "b" & DQ & " > "  & DQ & One & DQ & ";"
+        & " print " & DQ & "x" & DQ & " >> " & DQ & Two & DQ & ";"
+        & " print " & DQ & "y" & DQ & " >> " & DQ & Two & DQ
+        & " }";
+
+      function Captured (Name : String) return String is
+      begin
+         for E of Written loop
+            if U.To_String (E.Name) = Name then
+               return U.To_String (E.Value);
+            end if;
+         end loop;
+         return "<absent>";
+      end Captured;
    begin
-      if Ada.Directories.Exists (Path) then
-         Ada.Directories.Delete_File (Path);
-      end if;
       I.Run
         (Program_Source => Program, Input => "", Assignments => Empty,
          Environment => Empty, Filename => "test", Output => Output,
-         Exit_Code => Exit_Code, Status => Status, Message => Message);
-      Assert (Read_File_Bytes (Path) = "a" & LF & "b" & LF,
-              "output redirection appends records with single newlines");
-      Ada.Directories.Delete_File (Path);
+         Exit_Code => Exit_Code, Status => Status, Message => Message,
+         Output_Files => Written);
+      Assert (Natural (Written.Length) = 2, "each redirect target is one capture entry");
+      Assert (U.To_String (Written.Element (1).Name) = One,
+              "captures preserve first-write order");
+      Assert (Captured (One) = "a" & LF & "b" & LF,
+              "redirection to a name captures its records in memory, single newlines");
+      Assert (Captured (Two) = "x" & LF & "y" & LF,
+              "append redirection accumulates in the capture");
+      Assert (not Ada.Directories.Exists (One) and then not Ada.Directories.Exists (Two),
+              "redirection never touches the filesystem");
    end Test_Redirect;
 
    --  Reentrancy: many interpreter runs at once, each summing 1..Id. If Run kept

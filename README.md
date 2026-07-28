@@ -19,6 +19,7 @@ with Awklib.Interpreter;
 declare
    package I renames Awklib.Interpreter;
    Empty     : I.Assignment_Vectors.Vector;
+   Written   : I.Assignment_Vectors.Vector;
    Output    : Ada.Strings.Unbounded.Unbounded_String;
    Message   : Ada.Strings.Unbounded.Unbounded_String;
    Exit_Code : Integer;
@@ -33,12 +34,17 @@ begin
       Output         => Output,     --  captured stdout: "6\n"
       Exit_Code      => Exit_Code,  --  any `exit N`
       Status         => Status,     --  Run_Ok / Run_Error
-      Message        => Message);   --  lex/parse/runtime failure text
+      Message        => Message,    --  lex/parse/runtime failure text
+      Output_Files   => Written);   --  captured `print > file` targets
 end;
 ```
 
 `Files` supplies content for `getline < name`; `Input_Files` supplies the main input as
 an ordered list of (FILENAME, content) pairs so `FILENAME`/`FNR` track multi-file input.
+Redirected output is symmetric: `print > name` / `print >> name` is **captured in
+memory** and returned in `Output_Files` (one (name, content) entry per target, in
+first-write order) — the library never touches the filesystem, so a front end decides
+whether and where to write those files (the `cli/awk_run` example writes them to disk).
 The interpreter is **reentrant**: all state is local to a `Run` call, so independent
 programs may run concurrently on separate tasks (the shared compiled-regex cache is
 guarded by a protected object).

@@ -5,7 +5,6 @@ with Ada.Strings.Unbounded;   use Ada.Strings.Unbounded;
 with Ada.Characters.Handling;
 with Ada.Numerics.Generic_Elementary_Functions;
 with Ada.Numerics.Float_Random;
-with Ada.Streams.Stream_IO;
 with Ada.Text_IO;
 with Awklib.Ast;
 with Awklib.Values;
@@ -39,6 +38,7 @@ package body Awklib.Interpreter is
       Exit_Code      : out Integer;
       Status         : out Run_Status;
       Message        : out U.Unbounded_String;
+      Output_Files   : out Assignment_Vectors.Vector;
       Files          : Assignment_Vectors.Vector := Assignment_Vectors.Empty_Vector;
       Input_Files    : Assignment_Vectors.Vector := Assignment_Vectors.Empty_Vector)
    is
@@ -132,6 +132,10 @@ package body Awklib.Interpreter is
 
       Out_Buf        : Unbounded_String;
       Truncated      : Str_Sets.Map;
+      --  Redirected output captured in memory (see Output_Files): content per
+      --  target, plus the first-write order so the result is deterministic.
+      Redirect_Buf   : Content_Maps.Map;
+      Redirect_Order : Ustr_Vectors.Vector;
       Return_Value   : V.Value := V.Uninitialized_Value;
       Exit_Code_V    : Integer := 0;
       Exiting        : Boolean := False;
@@ -1119,31 +1123,24 @@ package body Awklib.Interpreter is
                Append (Out_Buf, Text);
             when A.R_File | A.R_Append =>
                declare
-                  use Ada.Streams;
-                  package SIO renames Ada.Streams.Stream_IO;
                   Name        : constant String := Eval_Str (Dest);
                   Append_Mode : constant Boolean :=
                     Redir = A.R_Append or else Truncated.Contains (Name);
-                  F   : SIO.File_Type;
-                  Buf : Stream_Element_Array (1 .. Text'Length);
                begin
-                  --  Write the bytes verbatim through a stream: Text_IO.Put treats
-                  --  an embedded LF as a line terminator and emits it twice.
+                  --  Capture in memory rather than opening the real file: the
+                  --  first `>` to a name truncates, `>>` and later `>` append,
+                  --  exactly as a filesystem stream would within one run.
+                  if not Redirect_Buf.Contains (Name) then
+                     Redirect_Buf.Insert (Name, Null_Unbounded_String);
+                     Redirect_Order.Append (To_Unbounded_String (Name));
+                  end if;
                   if not Append_Mode then
                      Truncated.Include (Name, True);
-                     SIO.Create (F, SIO.Out_File, Name);
+                     Redirect_Buf.Replace (Name, To_Unbounded_String (Text));
                   else
-                     SIO.Open (F, SIO.Append_File, Name);
+                     Redirect_Buf.Replace
+                       (Name, Redirect_Buf.Element (Name) & Text);
                   end if;
-                  for I in Text'Range loop
-                     Buf (Stream_Element_Offset (I - Text'First + 1)) :=
-                       Stream_Element (Character'Pos (Text (I)));
-                  end loop;
-                  SIO.Write (F, Buf);
-                  SIO.Close (F);
-               exception
-                  when others =>
-                     Runtime_Error ("cannot write to redirect target");
                end;
             when A.R_Pipe =>
                Runtime_Error ("output pipes are not supported");
@@ -1550,6 +1547,12 @@ package body Awklib.Interpreter is
       end loop;
 
       Output := Out_Buf;
+      Output_Files.Clear;
+      for Name of Redirect_Order loop
+         Output_Files.Append
+           (Var_Assignment'(Name  => Name,
+                            Value => Redirect_Buf.Element (To_String (Name))));
+      end loop;
       Exit_Code := Exit_Code_V;
       if Runtime_Failed then
          Status := Run_Error;

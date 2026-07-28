@@ -111,10 +111,27 @@ begin
    end if;
 
    declare
-      Output    : Unbounded_String;
-      Exit_Code : Integer;
-      Status    : I.Run_Status;
-      Message   : Unbounded_String;
+      Output       : Unbounded_String;
+      Output_Files : I.Assignment_Vectors.Vector;
+      Exit_Code    : Integer;
+      Status       : I.Run_Status;
+      Message      : Unbounded_String;
+
+      --  awklib captures `print > file` in memory; the CLI is the front end that
+      --  legitimately owns the filesystem, so it writes those captures to disk.
+      procedure Write_File (Path, Content : String) is
+         use Ada.Streams.Stream_IO;
+         F   : File_Type;
+         Buf : Ada.Streams.Stream_Element_Array (1 .. Content'Length);
+      begin
+         Create (F, Out_File, Path);
+         for K in Content'Range loop
+            Buf (Ada.Streams.Stream_Element_Offset (K - Content'First + 1)) :=
+              Ada.Streams.Stream_Element (Character'Pos (Content (K)));
+         end loop;
+         Write (F, Buf);
+         Close (F);
+      end Write_File;
    begin
       I.Run
         (Program_Source => To_String (Program),
@@ -126,10 +143,14 @@ begin
          Exit_Code      => Exit_Code,
          Status         => Status,
          Message        => Message,
+         Output_Files   => Output_Files,
          Input_Files    => Input_Files);
 
       String'Write (Ada.Text_IO.Text_Streams.Stream (Ada.Text_IO.Standard_Output),
                     To_String (Output));
+      for Redir of Output_Files loop
+         Write_File (To_String (Redir.Name), To_String (Redir.Value));
+      end loop;
       if Status = I.Run_Error then
          Ada.Text_IO.Put_Line (Ada.Text_IO.Standard_Error, "awk_run: " & To_String (Message));
          Set_Exit_Status (2);

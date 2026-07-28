@@ -28,6 +28,7 @@ package Awklib.Interpreter is
       Exit_Code      : out Integer;
       Status         : out Run_Status;
       Message        : out U.Unbounded_String;
+      Output_Files   : out Assignment_Vectors.Vector;
       Files          : Assignment_Vectors.Vector := Assignment_Vectors.Empty_Vector;
       Input_Files    : Assignment_Vectors.Vector := Assignment_Vectors.Empty_Vector);
    --  Files provides the content of named files for `getline < name`: each
@@ -43,5 +44,12 @@ package Awklib.Interpreter is
    --  Environment seeds ENVIRON[]. Filename sets FILENAME. Standard output is
    --  captured in Output. Exit_Code carries any `exit N`. On Run_Error, Message
    --  describes a lex/parse/runtime failure.
+   --
+   --  Output_Files captures redirected output in memory instead of touching the
+   --  filesystem: every `print > name` / `print >> name` / `printf > name`
+   --  target becomes one (name, final-content) entry, in first-write order, so a
+   --  library consumer captures redirected files the same hermetic way it feeds
+   --  input. Nothing is written to disk; a front end that wants real files writes
+   --  these entries out itself.
 
 end Awklib.Interpreter;
