@@ -1060,7 +1060,11 @@ package body Awklib.Interpreter is
                             else Numer / Denom));
                      end;
                   when A.Op_Pow =>
-                     return V.To_Value (V.Number (LF_Math."**" (Long_Float (Eval_Num (E.L)), Long_Float (Eval_Num (E.R)))));
+                     return V.To_Value
+                        (V.Number
+                           (LF_Math."**"
+                              (Long_Float (Eval_Num (E.L)),
+                               Long_Float (Eval_Num (E.R)))));
                   when A.Op_Lt => return Bool_Num (V.Compare (Eval (E.L), Eval (E.R)) < 0);
                   when A.Op_Le => return Bool_Num (V.Compare (Eval (E.L), Eval (E.R)) <= 0);
                   when A.Op_Gt => return Bool_Num (V.Compare (Eval (E.L), Eval (E.R)) > 0);
