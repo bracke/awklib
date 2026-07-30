@@ -7,7 +7,7 @@ maintainers = ["Bent Bracke <bent@bracke.dk>"]
 maintainers-logins = ["bracke"]
 licenses = "MIT"
 website = "https://github.com/bracke/awklib"
-long-description = "awklib implements a POSIX-style AWK language as an embeddable Ada library. It parses and runs real, unmodified AWK programs over in-memory input and captures their standard output — its first consumer runs the IANA tzdb project's own ziguard/zishrink scripts, so behaviour aims to match one-true-awk / gawk for the language subset those programs use."
+long-description = "awklib implements a POSIX-style AWK language as an embeddable Ada library. It parses and runs real, unmodified AWK programs over in-memory input and captures their standard output -- its first consumer runs the IANA tzdb project's own ziguard/zishrink scripts, so behaviour aims to match one-true-awk / gawk for the language subset those programs use."
 tags = ["awk", "interpreter", "text-processing"]
 project-files = ["awklib.gpr"]
 
