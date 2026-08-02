@@ -64,6 +64,27 @@ package body Awklib_Suite is
       end if;
    end Stream_Text_Read;
 
+   procedure Stream_Operand_Text_Read
+     (User_Data     : System.Address;
+      Operand_Index : Positive;
+      Filename      : out U.Unbounded_String;
+      Text          : out U.Unbounded_String;
+      End_Of_Input  : out Boolean)
+   is
+      pragma Unreferenced (User_Data);
+   begin
+      if Stream_Index = Operand_Index or else Operand_Index > Natural (Stream_Files.Length) then
+         Filename := U.Null_Unbounded_String;
+         Text := U.Null_Unbounded_String;
+         End_Of_Input := True;
+      else
+         Stream_Index := Operand_Index;
+         Filename := Stream_Files.Element (Operand_Index).Name;
+         Text := Stream_Files.Element (Operand_Index).Value;
+         End_Of_Input := False;
+      end if;
+   end Stream_Operand_Text_Read;
+
    procedure Stream_Write (User_Data : System.Address; Text : String) is
       pragma Unreferenced (User_Data);
    begin
@@ -699,6 +720,67 @@ package body Awklib_Suite is
          "text streaming applies RS assigned in BEGIN");
    end Test_Text_Streaming_Uses_Begin_RS;
 
+   procedure Test_Text_Streaming_Runtime_Assignment_Operands
+     (T : in out AUnit.Test_Cases.Test_Case'Class)
+   is
+      pragma Unreferenced (T);
+      Empty     : I.Assignment_Vectors.Vector;
+      Operands  : I.Runtime_Operand_Vectors.Vector;
+      Message   : U.Unbounded_String;
+      Exit_Code : Integer;
+      Status    : I.Run_Status;
+   begin
+      Reset_Stream;
+      Stream_Files.Append (Pair ("same.txt", "a" & LF));
+      Stream_Files.Append (Pair ("", ""));
+      Stream_Files.Append (Pair ("same.txt", "b" & LF));
+      Stream_Files.Append (Pair ("", ""));
+      Operands.Append
+        (I.Runtime_Operand'
+           (Kind => I.Input_Operand,
+            Text => U.To_Unbounded_String ("same.txt"),
+            Name => U.Null_Unbounded_String,
+            Value => U.Null_Unbounded_String));
+      Operands.Append
+        (I.Runtime_Operand'
+           (Kind => I.Assignment_Operand,
+            Text => U.To_Unbounded_String ("x=2"),
+            Name => U.To_Unbounded_String ("x"),
+            Value => U.To_Unbounded_String ("2")));
+      Operands.Append
+        (I.Runtime_Operand'
+           (Kind => I.Input_Operand,
+            Text => U.To_Unbounded_String ("same.txt"),
+            Name => U.Null_Unbounded_String,
+            Value => U.Null_Unbounded_String));
+      Operands.Append
+        (I.Runtime_Operand'
+           (Kind => I.Assignment_Operand,
+            Text => U.To_Unbounded_String ("x=3"),
+            Name => U.To_Unbounded_String ("x"),
+            Value => U.To_Unbounded_String ("3")));
+      I.Run_Text_Streaming_With_Operands
+        (Program_Source => "BEGIN { print ""begin"", x } { print FILENAME, FNR, x, $0 } END { print ""end"", x }",
+         Assignments => Empty,
+         Environment => Empty,
+         Initial_Filename => "",
+         Operands => Operands,
+         Read_Text => Stream_Operand_Text_Read'Access,
+         Write_Output => Stream_Write'Access,
+         Write_Redirection => null,
+         Exit_Code => Exit_Code,
+         Status => Status,
+         Message => Message);
+      Assert (Status = I.Run_Ok, "operand text streaming run succeeds");
+      Assert
+        (U.To_String (Stream_Output) =
+         "begin " & LF &
+         "same.txt 1  a" & LF &
+         "same.txt 1 2 b" & LF &
+         "end 3" & LF,
+         "runtime assignments are applied at operand positions");
+   end Test_Text_Streaming_Runtime_Assignment_Operands;
+
    procedure Test_Printf_Flags (T : in out AUnit.Test_Cases.Test_Case'Class) is
       pragma Unreferenced (T);
    begin
@@ -1013,6 +1095,9 @@ package body Awklib_Suite is
       Register_Routine
         (T, Test_Text_Streaming_Uses_Begin_RS'Access,
          "text streaming BEGIN RS");
+      Register_Routine
+        (T, Test_Text_Streaming_Runtime_Assignment_Operands'Access,
+         "text streaming runtime assignment operands");
       Register_Routine (T, Test_Printf_Flags'Access, "printf flags, width, %o/%x/%c");
       Register_Routine (T, Test_Coercion'Access, "strnum coercion and substr clamping");
       Register_Routine (T, Test_Escapes'Access, "string escapes");

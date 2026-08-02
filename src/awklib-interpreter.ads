@@ -22,6 +22,18 @@ package Awklib.Interpreter is
    package String_Vectors is new Ada.Containers.Vectors
      (Index_Type => Positive, Element_Type => U.Unbounded_String, "=" => U."=");
 
+   type Runtime_Operand_Kind is (Input_Operand, Assignment_Operand);
+
+   type Runtime_Operand is record
+      Kind  : Runtime_Operand_Kind := Input_Operand;
+      Text  : U.Unbounded_String;
+      Name  : U.Unbounded_String;
+      Value : U.Unbounded_String;
+   end record;
+
+   package Runtime_Operand_Vectors is new Ada.Containers.Vectors
+     (Index_Type => Positive, Element_Type => Runtime_Operand);
+
    type Run_Status is (Run_Ok, Run_Error);
 
    type Record_Reader is access procedure
@@ -135,5 +147,32 @@ package Awklib.Interpreter is
    --  Run with caller-provided text chunks and live output callbacks. Unlike
    --  Run_Streaming, the caller does not pre-split AWK records; record splitting
    --  according to RS remains inside awklib.
+
+   type Operand_Text_Reader is access procedure
+     (User_Data    : System.Address;
+      Operand_Index : Positive;
+      Filename     : out U.Unbounded_String;
+      Text         : out U.Unbounded_String;
+      End_Of_Input : out Boolean);
+
+   procedure Run_Text_Streaming_With_Operands
+     (Program_Source : String;
+      Assignments    : Assignment_Vectors.Vector;
+      Environment    : Assignment_Vectors.Vector;
+      Initial_Filename : String;
+      Operands       : Runtime_Operand_Vectors.Vector;
+      Read_Text      : not null Operand_Text_Reader;
+      Write_Output   : not null Output_Writer;
+      Write_Redirection : Redirection_Writer;
+      User_Data      : System.Address := System.Null_Address;
+      Exit_Code      : out Integer;
+      Status         : out Run_Status;
+      Message        : out U.Unbounded_String;
+      Files          : Assignment_Vectors.Vector := Assignment_Vectors.Empty_Vector);
+   --  Run with an AWK command-line operand sequence. Input operands are read
+   --  lazily through Read_Text, and assignment operands are applied by awklib at
+   --  their command-line positions: after BEGIN, before the following input, and
+   --  before END when trailing assignments remain. ARGV/ARGC are populated from
+   --  Operands exactly as supplied.
 
 end Awklib.Interpreter;
