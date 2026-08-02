@@ -18,6 +18,57 @@ package body Awklib_Suite is
    HT : constant String := [1 => ASCII.HT];
    DQ : constant String := [1 => '"'];
 
+   Stream_Files   : I.Assignment_Vectors.Vector;
+   Stream_Index   : Natural := 0;
+   Stream_Output  : U.Unbounded_String;
+   Stream_Redirect_Log : U.Unbounded_String;
+
+   procedure Stream_Read
+     (Filename     : out U.Unbounded_String;
+      Record_Text  : out U.Unbounded_String;
+      End_Of_Input : out Boolean)
+   is
+   begin
+      if Stream_Index >= Natural (Stream_Files.Length) then
+         Filename := U.Null_Unbounded_String;
+         Record_Text := U.Null_Unbounded_String;
+         End_Of_Input := True;
+      else
+         Stream_Index := Stream_Index + 1;
+         Filename := Stream_Files.Element (Stream_Index).Name;
+         Record_Text := Stream_Files.Element (Stream_Index).Value;
+         End_Of_Input := False;
+      end if;
+   end Stream_Read;
+
+   procedure Stream_Write (Text : String) is
+   begin
+      U.Append (Stream_Output, Text);
+   end Stream_Write;
+
+   procedure Stream_Redirect
+     (Name : String;
+      Text : String;
+      Append : Boolean;
+      Truncate : Boolean)
+   is
+   begin
+      U.Append (Stream_Redirect_Log, Name);
+      U.Append (Stream_Redirect_Log, ":");
+      U.Append (Stream_Redirect_Log, (if Append then "append" else "write"));
+      U.Append (Stream_Redirect_Log, ":");
+      U.Append (Stream_Redirect_Log, (if Truncate then "truncate" else "keep"));
+      U.Append (Stream_Redirect_Log, ":");
+      U.Append (Stream_Redirect_Log, Text);
+   end Stream_Redirect;
+
+   procedure Reset_Stream is
+   begin
+      Stream_Files.Clear;
+      Stream_Index := 0;
+      Stream_Output := U.Null_Unbounded_String;
+      Stream_Redirect_Log := U.Null_Unbounded_String;
+   end Reset_Stream;
 
    --  Run PROGRAM over INPUT with no seeded variables and return captured stdout.
    function Awk (Program : String; Input : String := "") return String is
@@ -469,6 +520,97 @@ package body Awklib_Suite is
          "FILENAME and FNR track each file while NR runs continuously");
    end Test_Multi_File;
 
+   procedure Test_Streaming_Input (T : in out AUnit.Test_Cases.Test_Case'Class) is
+      pragma Unreferenced (T);
+      Empty     : I.Assignment_Vectors.Vector;
+      Message   : U.Unbounded_String;
+      Exit_Code : Integer;
+      Status    : I.Run_Status;
+   begin
+      Reset_Stream;
+      Stream_Files.Append (Pair ("f1", "alpha one"));
+      Stream_Files.Append (Pair ("f1", "beta two"));
+      Stream_Files.Append (Pair ("f2", "gamma three"));
+      I.Run_Streaming
+        (Program_Source => "{ print FILENAME, FNR, NR, $1 }",
+         Assignments => Empty,
+         Environment => Empty,
+         Initial_Filename => "test",
+         Read_Record => Stream_Read'Access,
+         Write_Output => Stream_Write'Access,
+         Write_Redirection => null,
+         Exit_Code => Exit_Code,
+         Status => Status,
+         Message => Message);
+      Assert (Status = I.Run_Ok, "streaming run succeeds");
+      Assert
+        (U.To_String (Stream_Output) =
+         "f1 1 1 alpha" & LF & "f1 2 2 beta" & LF & "f2 1 3 gamma" & LF,
+         "streaming input drives FILENAME, FNR, NR, fields, and live stdout");
+   end Test_Streaming_Input;
+
+   procedure Test_Streaming_Getline_From_Begin
+     (T : in out AUnit.Test_Cases.Test_Case'Class)
+   is
+      pragma Unreferenced (T);
+      Empty     : I.Assignment_Vectors.Vector;
+      Message   : U.Unbounded_String;
+      Exit_Code : Integer;
+      Status    : I.Run_Status;
+   begin
+      Reset_Stream;
+      Stream_Files.Append (Pair ("stdin", "first"));
+      Stream_Files.Append (Pair ("stdin", "second"));
+      I.Run_Streaming
+        (Program_Source =>
+           "BEGIN { getline x; print FILENAME, FNR, NR, x } { print ""main"", $0 }",
+         Assignments => Empty,
+         Environment => Empty,
+         Initial_Filename => "stdin",
+         Read_Record => Stream_Read'Access,
+         Write_Output => Stream_Write'Access,
+         Write_Redirection => null,
+         Exit_Code => Exit_Code,
+         Status => Status,
+         Message => Message);
+      Assert (Status = I.Run_Ok, "streaming getline from BEGIN succeeds");
+      Assert
+        (U.To_String (Stream_Output) =
+         "stdin 1 1 first" & LF & "main second" & LF,
+         "BEGIN getline consumes the first streaming record");
+   end Test_Streaming_Getline_From_Begin;
+
+   procedure Test_Streaming_Redirection
+     (T : in out AUnit.Test_Cases.Test_Case'Class)
+   is
+      pragma Unreferenced (T);
+      Empty     : I.Assignment_Vectors.Vector;
+      Message   : U.Unbounded_String;
+      Exit_Code : Integer;
+      Status    : I.Run_Status;
+   begin
+      Reset_Stream;
+      I.Run_Streaming
+        (Program_Source =>
+           "BEGIN { print ""a"" > ""out""; print ""b"" > ""out""; print ""c"" >> ""out"" }",
+         Assignments => Empty,
+         Environment => Empty,
+         Initial_Filename => "test",
+         Read_Record => Stream_Read'Access,
+         Write_Output => Stream_Write'Access,
+         Write_Redirection => Stream_Redirect'Access,
+         Exit_Code => Exit_Code,
+         Status => Status,
+         Message => Message);
+      Assert (Status = I.Run_Ok, "streaming redirection run succeeds");
+      Assert
+        (U.To_String (Stream_Redirect_Log) =
+         "out:write:truncate:a" & LF &
+         "out:append:keep:b" & LF &
+         "out:append:keep:c" & LF,
+         "streaming redirection exposes effective write mode");
+   end Test_Streaming_Redirection;
+
    procedure Test_Printf_Flags (T : in out AUnit.Test_Cases.Test_Case'Class) is
       pragma Unreferenced (T);
    begin
@@ -770,6 +912,13 @@ package body Awklib_Suite is
       Register_Routine (T, Test_String_Functions'Access, "split/index/match/sub/tolower/sprintf");
       Register_Routine (T, Test_Getline_File'Access, "getline < file");
       Register_Routine (T, Test_Multi_File'Access, "multi-file FILENAME/FNR/NR");
+      Register_Routine (T, Test_Streaming_Input'Access, "streaming input API");
+      Register_Routine
+        (T, Test_Streaming_Getline_From_Begin'Access,
+         "streaming getline from BEGIN");
+      Register_Routine
+        (T, Test_Streaming_Redirection'Access,
+         "streaming redirection API");
       Register_Routine (T, Test_Printf_Flags'Access, "printf flags, width, %o/%x/%c");
       Register_Routine (T, Test_Coercion'Access, "strnum coercion and substr clamping");
       Register_Routine (T, Test_Escapes'Access, "string escapes");

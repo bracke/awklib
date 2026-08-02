@@ -34,6 +34,10 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `Awklib.Interpreter.Run` (`ARGV[0]` is `"awk"`, `ARGV[1..n]` the supplied strings,
   `ARGC` = n + 1); when `Arguments` is omitted they are derived from the `Input_Files`
   names, matching awk. They are readable but do not drive input.
+- `Awklib.Interpreter.Run_Streaming`, a live-host API with a main-record reader
+  callback and stdout/redirection writer callbacks. It avoids preloading main input,
+  standard output, or redirected output and exposes effective append/truncate
+  redirection semantics to the host.
 
 ### Changed
 
@@ -53,6 +57,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   instead of overflowing the number formatter.
 - `getline` and `getline var` from the main input stream now advance the record cursor
   instead of being a no-op.
+- Main-input `getline` from `BEGIN` works when using `Run_Streaming`, because records
+  are pulled lazily from the caller-supplied reader.
 - Custom `RS`, including single-character and paragraph mode, is honoured when splitting
   records.
 - Number formatting now matches C/awk: default output is `%.6g` (six significant

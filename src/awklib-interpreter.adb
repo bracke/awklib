@@ -30,7 +30,7 @@ package body Awklib.Interpreter is
    use type A.Getline_Source;
    use type Awklib.Parser.Result_Status;
 
-   procedure Run
+   procedure Run_Core
      (Program_Source : String;
       Input          : String;
       Assignments    : Assignment_Vectors.Vector;
@@ -43,7 +43,10 @@ package body Awklib.Interpreter is
       Output_Files   : out Assignment_Vectors.Vector;
       Files          : Assignment_Vectors.Vector := Assignment_Vectors.Empty_Vector;
       Input_Files    : Assignment_Vectors.Vector := Assignment_Vectors.Empty_Vector;
-      Arguments      : String_Vectors.Vector := String_Vectors.Empty_Vector)
+      Arguments      : String_Vectors.Vector := String_Vectors.Empty_Vector;
+      Read_Record    : Record_Reader := null;
+      Write_Output   : Output_Writer := null;
+      Write_Redirection : Redirection_Writer := null)
    is
       package LF_Math is new Ada.Numerics.Generic_Elementary_Functions (Long_Float);
 
@@ -116,6 +119,11 @@ package body Awklib.Interpreter is
       Main_Index : Natural := 0;
       NR_Count   : Natural := 0;
       FNR_Count  : Natural := 0;
+      Stream_File : Unbounded_String := To_Unbounded_String (Filename);
+      Stream_Has_File : Boolean := False;
+      Pending_Stream_Record : Boolean := False;
+      Pending_File : Unbounded_String;
+      Pending_Record : Unbounded_String;
 
       --  getline < file: caller-provided file contents and per-file read cursors.
       package Content_Maps is new Ada.Containers.Indefinite_Hashed_Maps
@@ -546,16 +554,48 @@ package body Awklib.Interpreter is
       --  the end of the current input.
       function Advance_Main_Record (Into_Field0 : Boolean; Var : A.Expr_Access) return Boolean is
       begin
-         if Main_Index >= Natural (Records.Length) then
-            return False;
+         if Read_Record = null then
+            if Main_Index >= Natural (Records.Length) then
+               return False;
+            end if;
+            Main_Index := Main_Index + 1;
+         else
+            declare
+               Done : Boolean;
+               Name : Unbounded_String;
+               Line : Unbounded_String;
+            begin
+               if Pending_Stream_Record then
+                  Name := Pending_File;
+                  Line := Pending_Record;
+                  Pending_Stream_Record := False;
+               else
+                  Read_Record.all (Name, Line, Done);
+                  if Done then
+                     return False;
+                  end if;
+               end if;
+
+               if not Stream_Has_File or else Name /= Stream_File then
+                  Stream_File := Name;
+                  Stream_Has_File := True;
+                  FNR_Count := 0;
+                  Set_Scalar ("FILENAME", V.To_Value (To_String (Stream_File)));
+               end if;
+
+               Pending_Record := Line;
+            end;
          end if;
-         Main_Index := Main_Index + 1;
+
          NR_Count   := NR_Count + 1;
          FNR_Count  := FNR_Count + 1;
          Set_Scalar ("NR", V.To_Value (V.Number (NR_Count)));
          Set_Scalar ("FNR", V.To_Value (V.Number (FNR_Count)));
          declare
-            Line : constant String := To_String (Records.Element (Main_Index));
+            Line : constant String :=
+              (if Read_Record = null
+               then To_String (Records.Element (Main_Index))
+               else To_String (Pending_Record));
          begin
             if Into_Field0 then
                Set_Record (Line);
@@ -1172,26 +1212,39 @@ package body Awklib.Interpreter is
       begin
          case Redir is
             when A.R_None =>
-               Append (Out_Buf, Text);
+               if Write_Output = null then
+                  Append (Out_Buf, Text);
+               else
+                  Write_Output.all (Text);
+               end if;
             when A.R_File | A.R_Append =>
                declare
                   Name        : constant String := Eval_Str (Dest);
                   Append_Mode : constant Boolean :=
                     Redir = A.R_Append or else Truncated.Contains (Name);
                begin
-                  --  Capture in memory rather than opening the real file: the
-                  --  first `>` to a name truncates, `>>` and later `>` append,
-                  --  exactly as a filesystem stream would within one run.
-                  if not Redirect_Buf.Contains (Name) then
-                     Redirect_Buf.Insert (Name, Null_Unbounded_String);
-                     Redirect_Order.Append (To_Unbounded_String (Name));
-                  end if;
-                  if not Append_Mode then
-                     Truncated.Include (Name, True);
-                     Redirect_Buf.Replace (Name, To_Unbounded_String (Text));
+                  if Write_Redirection = null then
+                     --  Capture in memory rather than opening the real file:
+                     --  the first `>` to a name truncates, `>>` and later `>`
+                     --  append, exactly as a filesystem stream would within
+                     --  one run.
+                     if not Redirect_Buf.Contains (Name) then
+                        Redirect_Buf.Insert (Name, Null_Unbounded_String);
+                        Redirect_Order.Append (To_Unbounded_String (Name));
+                     end if;
+                     if not Append_Mode then
+                        Truncated.Include (Name, True);
+                        Redirect_Buf.Replace (Name, To_Unbounded_String (Text));
+                     else
+                        Redirect_Buf.Replace
+                          (Name, Redirect_Buf.Element (Name) & Text);
+                     end if;
                   else
-                     Redirect_Buf.Replace
-                       (Name, Redirect_Buf.Element (Name) & Text);
+                     if not Append_Mode then
+                        Truncated.Include (Name, True);
+                     end if;
+                     Write_Redirection.all
+                       (Name, Text, Append_Mode, not Append_Mode);
                   end if;
                end;
             when A.R_Pipe =>
@@ -1445,6 +1498,11 @@ package body Awklib.Interpreter is
       Main_Index := 0;
       NR_Count := 0;
       FNR_Count := 0;
+      Stream_File := To_Unbounded_String (Filename);
+      Stream_Has_File := False;
+      Pending_Stream_Record := False;
+      Pending_File := Null_Unbounded_String;
+      Pending_Record := Null_Unbounded_String;
       Out_Buf := Null_Unbounded_String;
       Return_Value := V.Uninitialized_Value;
       Exit_Code_V := 0;
@@ -1537,6 +1595,60 @@ package body Awklib.Interpreter is
       --  runs continuously, range-pattern state (Range_Active) spans the run.
       if Has_Main_Or_End and then not Exiting and then not Runtime_Failed then
          declare
+            procedure Process_Current_Record (Do_Nextfile : out Boolean) is
+               Idx : Natural := 0;
+            begin
+               Do_Nextfile := False;
+               for R of Prog.Rules loop
+                  exit when Exiting or else Runtime_Failed;
+                  if R.Pat /= A.P_Begin and then R.Pat /= A.P_End then
+                     Idx := Idx + 1;
+                     declare
+                        Fire : Boolean := False;
+                     begin
+                        case R.Pat is
+                           when A.P_Always =>
+                              Fire := True;
+                           when A.P_Expr =>
+                              Fire := V.Is_True (Eval (R.Expr1));
+                           when A.P_Range =>
+                              if Idx <= Range_Active'Last then
+                                 if not Range_Active (Idx) then
+                                    if V.Is_True (Eval (R.Expr1)) then
+                                       Range_Active (Idx) := True;
+                                       Fire := True;
+                                       if V.Is_True (Eval (R.Expr2)) then
+                                          Range_Active (Idx) := False;
+                                       end if;
+                                    end if;
+                                 else
+                                    Fire := True;
+                                    if V.Is_True (Eval (R.Expr2)) then
+                                       Range_Active (Idx) := False;
+                                    end if;
+                                 end if;
+                              end if;
+                           when others => null;
+                        end case;
+
+                        if Fire then
+                           declare
+                              F : Flow;
+                           begin
+                              Run_Action (R, F);
+                              if F = Flow_Nextfile then
+                                 Do_Nextfile := True;
+                                 exit;
+                              elsif F = Flow_Next then
+                                 exit;
+                              end if;
+                           end;
+                        end if;
+                     end;
+                  end if;
+               end loop;
+            end Process_Current_Record;
+
             procedure Process_File (FName : String; Content : String) is
                Do_Nextfile : Boolean := False;
             begin
@@ -1550,62 +1662,48 @@ package body Awklib.Interpreter is
                while not (Exiting or else Runtime_Failed or else Do_Nextfile)
                  and then Advance_Main_Record (Into_Field0 => True, Var => null)
                loop
-                  declare
-                     Idx : Natural := 0;
-                  begin
-                     for R of Prog.Rules loop
-                        exit when Exiting or else Runtime_Failed;
-                        if R.Pat /= A.P_Begin and then R.Pat /= A.P_End then
-                           Idx := Idx + 1;
-                           declare
-                              Fire : Boolean := False;
-                           begin
-                              case R.Pat is
-                                 when A.P_Always =>
-                                    Fire := True;
-                                 when A.P_Expr =>
-                                    Fire := V.Is_True (Eval (R.Expr1));
-                                 when A.P_Range =>
-                                    if Idx <= Range_Active'Last then
-                                       if not Range_Active (Idx) then
-                                          if V.Is_True (Eval (R.Expr1)) then
-                                             Range_Active (Idx) := True;
-                                             Fire := True;
-                                             if V.Is_True (Eval (R.Expr2)) then
-                                                Range_Active (Idx) := False;
-                                             end if;
-                                          end if;
-                                       else
-                                          Fire := True;
-                                          if V.Is_True (Eval (R.Expr2)) then
-                                             Range_Active (Idx) := False;
-                                          end if;
-                                       end if;
-                                    end if;
-                                 when others => null;
-                              end case;
-
-                              if Fire then
-                                 declare
-                                    F : Flow;
-                                 begin
-                                    Run_Action (R, F);
-                                    if F = Flow_Nextfile then
-                                       Do_Nextfile := True;
-                                       exit;
-                                    elsif F = Flow_Next then
-                                       exit;
-                                    end if;
-                                 end;
-                              end if;
-                           end;
-                        end if;
-                     end loop;
-                  end;
+                  Process_Current_Record (Do_Nextfile);
                end loop;
             end Process_File;
+
+            procedure Skip_Current_Stream_File is
+               Old_Name : constant String := To_String (Stream_File);
+               Done     : Boolean := False;
+               Name     : Unbounded_String;
+               Line     : Unbounded_String;
+            begin
+               while not Done loop
+                  Read_Record.all (Name, Line, Done);
+                  if not Done and then To_String (Name) /= Old_Name then
+                     Pending_File := Name;
+                     Pending_Record := Line;
+                     Pending_Stream_Record := True;
+                     return;
+                  end if;
+               end loop;
+            end Skip_Current_Stream_File;
+
+            procedure Process_Stream is
+               Do_Nextfile : Boolean := False;
+            begin
+               Set_Scalar ("FILENAME", V.To_Value (Filename));
+               FNR_Count := 0;
+               Stream_File := To_Unbounded_String (Filename);
+               Stream_Has_File := False;
+               while not (Exiting or else Runtime_Failed)
+                 and then Advance_Main_Record (Into_Field0 => True, Var => null)
+               loop
+                  Process_Current_Record (Do_Nextfile);
+                  if Do_Nextfile then
+                     Skip_Current_Stream_File;
+                     Do_Nextfile := False;
+                  end if;
+               end loop;
+            end Process_Stream;
          begin
-            if Input_Files.Is_Empty then
+            if Read_Record /= null then
+               Process_Stream;
+            elsif Input_Files.Is_Empty then
                Process_File (Filename, Input);
             else
                for F of Input_Files loop
@@ -1657,6 +1755,78 @@ package body Awklib.Interpreter is
          Status := Run_Error;
          Message := To_Unbounded_String
            ("awklib internal error: " & Ada.Exceptions.Exception_Message (Err));
+   end Run_Core;
+
+   procedure Run
+     (Program_Source : String;
+      Input          : String;
+      Assignments    : Assignment_Vectors.Vector;
+      Environment    : Assignment_Vectors.Vector;
+      Filename       : String;
+      Output         : out U.Unbounded_String;
+      Exit_Code      : out Integer;
+      Status         : out Run_Status;
+      Message        : out U.Unbounded_String;
+      Output_Files   : out Assignment_Vectors.Vector;
+      Files          : Assignment_Vectors.Vector := Assignment_Vectors.Empty_Vector;
+      Input_Files    : Assignment_Vectors.Vector := Assignment_Vectors.Empty_Vector;
+      Arguments      : String_Vectors.Vector := String_Vectors.Empty_Vector)
+   is
+   begin
+      Run_Core
+        (Program_Source => Program_Source,
+         Input => Input,
+         Assignments => Assignments,
+         Environment => Environment,
+         Filename => Filename,
+         Output => Output,
+         Exit_Code => Exit_Code,
+         Status => Status,
+         Message => Message,
+         Output_Files => Output_Files,
+         Files => Files,
+         Input_Files => Input_Files,
+         Arguments => Arguments,
+         Read_Record => null,
+         Write_Output => null,
+         Write_Redirection => null);
    end Run;
+
+   procedure Run_Streaming
+     (Program_Source : String;
+      Assignments    : Assignment_Vectors.Vector;
+      Environment    : Assignment_Vectors.Vector;
+      Initial_Filename : String;
+      Read_Record    : not null Record_Reader;
+      Write_Output   : not null Output_Writer;
+      Write_Redirection : Redirection_Writer;
+      Exit_Code      : out Integer;
+      Status         : out Run_Status;
+      Message        : out U.Unbounded_String;
+      Files          : Assignment_Vectors.Vector := Assignment_Vectors.Empty_Vector;
+      Arguments      : String_Vectors.Vector := String_Vectors.Empty_Vector)
+   is
+      Output       : U.Unbounded_String;
+      Output_Files : Assignment_Vectors.Vector;
+      Empty_Inputs : Assignment_Vectors.Vector;
+   begin
+      Run_Core
+        (Program_Source => Program_Source,
+         Input => "",
+         Assignments => Assignments,
+         Environment => Environment,
+         Filename => Initial_Filename,
+         Output => Output,
+         Exit_Code => Exit_Code,
+         Status => Status,
+         Message => Message,
+         Output_Files => Output_Files,
+         Files => Files,
+         Input_Files => Empty_Inputs,
+         Arguments => Arguments,
+         Read_Record => Read_Record,
+         Write_Output => Write_Output,
+         Write_Redirection => Write_Redirection);
+   end Run_Streaming;
 
 end Awklib.Interpreter;

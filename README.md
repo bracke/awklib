@@ -46,6 +46,12 @@ memory** and returned in `Output_Files` (one (name, content) entry per target, i
 first-write order) — the library never touches the filesystem, so a front end decides
 whether and where to write those files (the `cli/awk_run` example writes them to disk).
 
+For front ends that need live host integration, `Awklib.Interpreter.Run_Streaming`
+accepts a record-reader callback and stdout/redirection writer callbacks. It does not
+preload main input, standard output, or redirected output. The reader supplies one
+record and its AWK-visible filename at a time; the redirection callback receives the
+effective append/truncate mode for each write.
+
 `Arguments` seeds `ARGV`/`ARGC` the way a command line would (`ARGV[0]` is `"awk"`,
 `ARGV[1..n]` the supplied strings, `ARGC` = n + 1); omit it and they default to the
 `Input_Files` names, as awk's own `ARGV` holds the files it was given. `ARGV`/`ARGC` are
@@ -69,11 +75,12 @@ multi-file input — see the [testsuite](tests/src/awklib_suite.adb) for worked 
   for being malformed UTF-8 — stray bytes count as one character each. Because matching
   stays byte-lenient, `\w`/`\b` word-membership and case-insensitive folding are
   ASCII-only, and `printf` field width for `%c` counts bytes.
-- **`getline` from the main stream works in rules, not in `BEGIN`.** `getline`,
+- **`getline` from the main stream in `BEGIN` needs streaming input.** `getline`,
   `getline var`, and `while ((getline) > 0)` read the main input correctly inside main
-  rules, but not inside a `BEGIN` block: input records are split *after* `BEGIN` runs so
-  that an `RS` assigned in `BEGIN` takes effect, and the two cannot both hold without lazy
-  record reading. `getline < file` works everywhere; `cmd | getline` is not implemented.
+  rules for both APIs. `Run_Streaming` also supports main-input `getline` from `BEGIN`
+  because records are read lazily. The in-memory `Run` API still splits records after
+  `BEGIN` so an `RS` assigned in `BEGIN` takes effect. `getline < file` works everywhere;
+  `cmd | getline` is not implemented.
 
 ## Architecture
 

@@ -23,6 +23,26 @@ package Awklib.Interpreter is
 
    type Run_Status is (Run_Ok, Run_Error);
 
+   type Record_Reader is access procedure
+     (Filename     : out U.Unbounded_String;
+      Record_Text  : out U.Unbounded_String;
+      End_Of_Input : out Boolean);
+   --  Supplies one main-input record per call. Filename is the AWK-visible
+   --  FILENAME for the returned record. Consecutive records with the same
+   --  Filename belong to the same FNR sequence; a changed Filename resets FNR.
+
+   type Output_Writer is access procedure (Text : String);
+   --  Receives AWK standard output exactly as produced.
+
+   type Redirection_Writer is access procedure
+     (Name : String;
+      Text : String;
+      Append : Boolean;
+      Truncate : Boolean);
+   --  Receives AWK redirected output exactly as produced. Truncate is True for
+   --  the first effective ">" to a target in a run. Append is True for ">>" and
+   --  for later writes to an already-open target.
+
    procedure Run
      (Program_Source : String;
       Input          : String;
@@ -64,5 +84,23 @@ package Awklib.Interpreter is
    --  library consumer captures redirected files the same hermetic way it feeds
    --  input. Nothing is written to disk; a front end that wants real files writes
    --  these entries out itself.
+
+   procedure Run_Streaming
+     (Program_Source : String;
+      Assignments    : Assignment_Vectors.Vector;
+      Environment    : Assignment_Vectors.Vector;
+      Initial_Filename : String;
+      Read_Record    : not null Record_Reader;
+      Write_Output   : not null Output_Writer;
+      Write_Redirection : Redirection_Writer;
+      Exit_Code      : out Integer;
+      Status         : out Run_Status;
+      Message        : out U.Unbounded_String;
+      Files          : Assignment_Vectors.Vector := Assignment_Vectors.Empty_Vector;
+      Arguments      : String_Vectors.Vector := String_Vectors.Empty_Vector);
+   --  Run with caller-provided streaming main input and live output callbacks.
+   --  This API does not preload main input, standard output, or redirected
+   --  output. AWK source, auxiliary getline file contents supplied through
+   --  Files, and interpreter state are still held in memory.
 
 end Awklib.Interpreter;
