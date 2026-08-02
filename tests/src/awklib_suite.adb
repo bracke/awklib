@@ -230,6 +230,9 @@ package body Awklib_Suite is
    begin
       Assert (Awk ("/b/ { print }", "a" & LF & "b" & LF & "c" & LF) = "b" & LF,
               "a bare regex selects matching records");
+      Assert
+        (Awk ("BEGIN { print match(""aa"", /a|aa/), RSTART, RLENGTH }") = "1 1 2" & LF,
+         "regex match selection is leftmost-longest");
    end Test_Regex_Pattern;
 
    procedure Test_Comparison_Pattern (T : in out AUnit.Test_Cases.Test_Case'Class) is
@@ -540,6 +543,9 @@ package body Awklib_Suite is
       Assert
         (Awk ("BEGIN { print match(""foobar"", /o+/), RSTART, RLENGTH }") = "2 2 2" & LF,
          "match sets RSTART and RLENGTH");
+      Assert
+        (Awk ("BEGIN { s = ""aa""; n = sub(/a|aa/, ""X"", s); print s, n }") = "X 1" & LF,
+         "sub uses the leftmost-longest regex match");
       Assert (Awk ("BEGIN { s = ""hello""; n = sub(/l/, ""L"", s); print s, n }") = "heLlo 1" & LF,
               "sub replaces the first match and returns the count");
       Assert (Awk ("BEGIN { print tolower(""HeLLo"") }") = "hello" & LF, "tolower");

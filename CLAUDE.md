@@ -41,9 +41,8 @@ the concern, not the interpreter as a whole:
 - The interpreter is **reentrant**: interpreter and parser state is local to each
   `Run`/`Parse` call; the only shared state is the compiled-regex cache, guarded by a
   protected object. Keep it that way -- do not add package-level mutable state.
-- The known, deliberate divergence is regex discipline: `regexp` is backtracking
-  (leftmost-first), not POSIX leftmost-longest. Don't "fix" that per-call; it is a
-  property of the engine.
+- `Awklib.Regex` owns AWK-specific match selection on top of `regexp`; preserve
+  leftmost-longest behavior when changing regex integration.
 - Conventional-commits style (`feat:`, `fix:`, `refactor:`, …).
 
 ## Tri-platform CI

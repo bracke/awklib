@@ -116,8 +116,8 @@ begin
      ("README.md", "alr test",
       "README must document how to build and run the suite");
    Require_Text
-     ("README.md", "leftmost-first",
-      "README must document the leftmost-first regex boundary");
+     ("README.md", "leftmost-longest",
+      "README must document AWK leftmost-longest regex selection");
    Require_Text
      ("CLAUDE.md", "reentrant",
       "CLAUDE.md must document the reentrancy contract (no package-level mutable state)");

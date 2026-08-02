@@ -9,9 +9,8 @@ is
    --  the IANA tzdb project's own ziguard/zishrink scripts -- so behaviour aims
    --  to match one-true-awk / gawk for the language subset those programs use.
    --
-   --  Known boundary: `regexp` is a backtracking (leftmost-first) engine, so
-   --  regex matches follow that discipline rather than POSIX leftmost-longest.
-   --  For simple expressions the two never diverge.
+   --  `regexp` supplies the primitive matching engine; the awklib regex bridge
+   --  selects the leftmost-longest match expected by AWK.
 
    Version : constant String := "0.1.0";
 

@@ -69,9 +69,8 @@ multi-file input — see the [testsuite](tests/src/awklib_suite.adb) for worked 
 
 ## Known boundaries
 
-- **Regex discipline.** `regexp` is a backtracking (leftmost-first) engine, so matches
-  follow that discipline rather than POSIX leftmost-longest. For the simple expressions
-  AWK programs typically use, the two never diverge.
+- **Regex discipline.** `regexp` supplies primitive matching, while `Awklib.Regex`
+  selects the leftmost-longest match expected by AWK.
 - **UTF-8 is code-point aware, but byte-lenient.** String functions and regex operate on
   whole code points (`length`, `substr`, `.`, `[α-ω]`, …), yet input is never rejected
   for being malformed UTF-8 — stray bytes count as one character each. Because matching

@@ -15,6 +15,7 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   Regular expressions also match by code point — `.`, quantifiers, and classes
   (including positive ranges like `[α-ω]` and negated classes like `[^,]`) span whole
   code points — because awk patterns compile in the `regexp` engine's UTF-8 mode.
+  The regex bridge selects the leftmost-longest match expected by AWK.
   Boundaries: matching stays byte-lenient (arbitrary input bytes are tolerated, not
   rejected), so `\b`/`\w` word-membership and case-insensitive folding remain
   ASCII-only; `printf` field width for `%c` counts bytes.

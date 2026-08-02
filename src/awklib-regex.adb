@@ -39,7 +39,12 @@ package body Awklib.Regex is
    use type Regexp.Compile_Status;
    use type Regexp.Match_Status;
 
-   type Comp_Access is access Regexp.Compile_Result;
+   type Compiled_Pattern is record
+      Search   : Regexp.Compile_Result;
+      Anchored : Regexp.Compile_Result;
+   end record;
+
+   type Comp_Access is access Compiled_Pattern;
 
    package Cache_Maps is new Ada.Containers.Indefinite_Hashed_Maps
      (Key_Type        => String,
@@ -93,11 +98,17 @@ package body Awklib.Regex is
          --  code points. Matching stays lenient (the match options below are not
          --  UTF_8_Mode, so no input-validation rejection); the engine's decoder
          --  tolerates malformed bytes, which an awk program may legitimately see.
-         Comp := new Regexp.Compile_Result'
-           (Regexp.Compile (Translate_Escapes (Pattern), Character_Mode => Regexp.UTF_8_Mode));
+         declare
+            Translated : constant String := Translate_Escapes (Pattern);
+         begin
+            Comp := new Compiled_Pattern'
+              (Search   => Regexp.Compile (Translated, Character_Mode => Regexp.UTF_8_Mode),
+               Anchored => Regexp.Compile ("^(?:" & Translated & ")$", Character_Mode => Regexp.UTF_8_Mode));
+         end;
          Cache_Store.Store (Pattern, Comp);
       end if;
-      Ok := Comp.Status = Regexp.Compile_Ok;
+      Ok := Comp.Search.Status = Regexp.Compile_Ok
+        and then Comp.Anchored.Status = Regexp.Compile_Ok;
    end Get_Compiled;
 
    function Is_Match (Pattern, Text : String) return Boolean is
@@ -108,7 +119,7 @@ package body Awklib.Regex is
       if not Ok then
          return False;
       end if;
-      return Regexp.Has_Match (Comp.Expression, Text, Awk_Options);
+      return Search (Pattern, Text).Matched;
    end Is_Match;
 
    function Search (Pattern, Text : String; From : Positive := 1) return Match is
@@ -121,10 +132,43 @@ package body Awklib.Regex is
       end if;
       declare
          M : constant Regexp.Match_Result :=
-           Regexp.Find_From (Comp.Expression, Text, From, Awk_Options);
+           Regexp.Find_From (Comp.Search.Expression, Text, From, Awk_Options);
       begin
          if M.Status = Regexp.Match_Ok then
-            return (Matched => True, First => M.First, Last => M.Last);
+            declare
+               Absolute_First : constant Positive := Text'First + M.First - 1;
+               Best_Last      : Natural := M.Last;
+
+               function Prefix_Matches (Last : Natural) return Boolean is
+                  R : Regexp.Match_Result;
+               begin
+                  if Last < Absolute_First then
+                     R := Regexp.Matches_Entire (Comp.Anchored.Expression, "", Awk_Options);
+                  else
+                     R :=
+                       Regexp.Matches_Entire
+                         (Comp.Anchored.Expression,
+                          Text (Absolute_First .. Positive (Last)),
+                          Awk_Options);
+                  end if;
+                  return R.Status = Regexp.Match_Ok;
+               end Prefix_Matches;
+            begin
+               if Text'Length > 0 then
+                  for Last in reverse Absolute_First .. Text'Last loop
+                     if Prefix_Matches (Last) then
+                        Best_Last := Last - Text'First + 1;
+                        return (Matched => True, First => M.First, Last => Best_Last);
+                     end if;
+                  end loop;
+               end if;
+
+               if Prefix_Matches (Absolute_First - 1) then
+                  return (Matched => True, First => M.First, Last => M.First - 1);
+               end if;
+
+               return (Matched => True, First => M.First, Last => Best_Last);
+            end;
          else
             return (Matched => False, others => 0);
          end if;
