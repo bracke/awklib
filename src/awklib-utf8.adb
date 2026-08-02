@@ -1,4 +1,10 @@
+with Ada.Strings.Unbounded;
+with Ada.Wide_Wide_Characters.Handling;
+
 package body Awklib.Utf8 is
+
+   package U renames Ada.Strings.Unbounded;
+   package WWH renames Ada.Wide_Wide_Characters.Handling;
 
    function Sequence_Length (S : String; From : Positive) return Positive is
       Lead : constant Natural := Character'Pos (S (From));
@@ -89,5 +95,62 @@ package body Awklib.Utf8 is
                  Character'Val (16#80# + Code mod 16#40#)];
       end if;
    end Encode;
+
+   function Decode (S : String; From : Positive; Len : Positive) return Natural is
+      Lead : constant Natural := Character'Pos (S (From));
+   begin
+      case Len is
+         when 1 =>
+            return Lead;
+         when 2 =>
+            return (Lead mod 16#20#) * 16#40#
+              + (Character'Pos (S (From + 1)) mod 16#40#);
+         when 3 =>
+            return (Lead mod 16#10#) * 16#1000#
+              + (Character'Pos (S (From + 1)) mod 16#40#) * 16#40#
+              + (Character'Pos (S (From + 2)) mod 16#40#);
+         when others =>
+            return (Lead mod 16#08#) * 16#4_0000#
+              + (Character'Pos (S (From + 1)) mod 16#40#) * 16#1000#
+              + (Character'Pos (S (From + 2)) mod 16#40#) * 16#40#
+              + (Character'Pos (S (From + 3)) mod 16#40#);
+      end case;
+   end Decode;
+
+   function Is_Unicode_Scalar (Code : Natural) return Boolean is
+     (Code <= 16#10_FFFF# and then not (Code in 16#D800# .. 16#DFFF#));
+
+   function Convert_Case (S : String; Upper : Boolean) return String is
+      Result : U.Unbounded_String;
+      Rel    : Positive := 1;
+   begin
+      while Rel <= S'Length loop
+         declare
+            From : constant Positive := S'First + Rel - 1;
+            Len  : constant Positive := Sequence_Length (S, From);
+            Code : constant Natural := Decode (S, From, Len);
+         begin
+            if Len = 1 and then Code >= 16#80# then
+               U.Append (Result, S (From));
+            elsif Is_Unicode_Scalar (Code) then
+               declare
+                  Ch : constant Wide_Wide_Character := Wide_Wide_Character'Val (Code);
+                  Converted : constant Wide_Wide_Character :=
+                    (if Upper then WWH.To_Upper (Ch) else WWH.To_Lower (Ch));
+               begin
+                  U.Append (Result, Encode (Wide_Wide_Character'Pos (Converted)));
+               end;
+            else
+               U.Append (Result, S (From .. From + Len - 1));
+            end if;
+            Rel := Rel + Len;
+         end;
+      end loop;
+      return U.To_String (Result);
+   end Convert_Case;
+
+   function To_Lower (S : String) return String is (Convert_Case (S, Upper => False));
+
+   function To_Upper (S : String) return String is (Convert_Case (S, Upper => True));
 
 end Awklib.Utf8;

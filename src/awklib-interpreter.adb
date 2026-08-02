@@ -1,7 +1,6 @@
 with Ada.Containers.Indefinite_Hashed_Maps;
 with Ada.Strings.Hash;
 with Ada.Strings.Unbounded;   use Ada.Strings.Unbounded;
-with Ada.Characters.Handling;
 with Ada.Numerics.Generic_Elementary_Functions;
 with Ada.Numerics.Float_Random;
 with Ada.Exceptions;
@@ -1175,9 +1174,9 @@ package body Awklib.Interpreter is
                return V.To_Value (V.Number'Truncation (Eval_Num (Arg (1))));
 
             when A.B_Tolower =>
-               return V.To_Value (Ada.Characters.Handling.To_Lower (Eval_Str (Arg (1))));
+               return V.To_Value (Awklib.Utf8.To_Lower (Eval_Str (Arg (1))));
             when A.B_Toupper =>
-               return V.To_Value (Ada.Characters.Handling.To_Upper (Eval_Str (Arg (1))));
+               return V.To_Value (Awklib.Utf8.To_Upper (Eval_Str (Arg (1))));
 
             when A.B_Sin =>
                return V.To_Value (V.Number (LF_Math.Sin (Long_Float (Eval_Num (Arg (1))))));

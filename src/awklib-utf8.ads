@@ -28,4 +28,12 @@ package Awklib.Utf8 is
    --  The UTF-8 encoding of code point Code. Values beyond U+10FFFF are encoded
    --  from their low bits (lenient), never raising.
 
+   function To_Lower (S : String) return String;
+   --  Unicode-aware lowercase conversion for well-formed UTF-8 codepoints.
+   --  Malformed bytes are preserved unchanged.
+
+   function To_Upper (S : String) return String;
+   --  Unicode-aware uppercase conversion for well-formed UTF-8 codepoints.
+   --  Malformed bytes are preserved unchanged.
+
 end Awklib.Utf8;

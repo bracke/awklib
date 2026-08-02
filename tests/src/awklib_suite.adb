@@ -1180,6 +1180,7 @@ package body Awklib_Suite is
    procedure Test_Utf8 (T : in out AUnit.Test_Cases.Test_Case'Class) is
       pragma Unreferenced (T);
       Eacute : constant String := Character'Val (16#C3#) & Character'Val (16#A9#);   --  é
+      Eacute_Upper : constant String := Character'Val (16#C3#) & Character'Val (16#89#);   --  É
       Ri     : constant String :=                                                    --  日
         Character'Val (16#E6#) & Character'Val (16#97#) & Character'Val (16#A5#);
    begin
@@ -1205,6 +1206,12 @@ package body Awklib_Suite is
       Assert (Awk ("BEGIN { printf " & DQ & "[%3c]" & DQ & ", " & DQ & Eacute & "x" & DQ & " }")
               = "[  " & Eacute & "]",
               "printf %c width counts the first string code point");
+      Assert (Awk ("BEGIN { print toupper(" & DQ & "caf" & Eacute & DQ & ") }")
+              = "CAF" & Eacute_Upper & LF,
+              "toupper converts UTF-8 code points");
+      Assert (Awk ("BEGIN { print tolower(" & DQ & "CAF" & Eacute_Upper & DQ & ") }")
+              = "caf" & Eacute & LF,
+              "tolower converts UTF-8 code points");
    end Test_Utf8;
 
    procedure Test_Malformed_Utf8 (T : in out AUnit.Test_Cases.Test_Case'Class) is
@@ -1222,6 +1229,10 @@ package body Awklib_Suite is
          "malformed UTF-8 bytes are preserved as single characters");
       Assert (Awk ("{ gsub(/./, ""X""); print }", Bad & LF) = "XXXXX" & LF,
               "regex over malformed UTF-8 is controlled and character-counted");
+      Assert (Awk ("{ print toupper($0); print tolower($0) }", Bad & LF)
+              = "A" & Bad_Lead & "B" & Stray & "C" & LF
+              & "a" & Bad_Lead & "b" & Stray & "c" & LF,
+              "case conversion preserves malformed UTF-8 bytes");
    end Test_Malformed_Utf8;
 
    --  Regex matches by code point (via the UTF-8-mode regexp engine): ".",
