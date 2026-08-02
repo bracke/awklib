@@ -41,6 +41,24 @@ package body Awklib_Suite is
       end if;
    end Stream_Read;
 
+   procedure Stream_Text_Read
+     (Filename     : out U.Unbounded_String;
+      Text         : out U.Unbounded_String;
+      End_Of_Input : out Boolean)
+   is
+   begin
+      if Stream_Index >= Natural (Stream_Files.Length) then
+         Filename := U.Null_Unbounded_String;
+         Text := U.Null_Unbounded_String;
+         End_Of_Input := True;
+      else
+         Stream_Index := Stream_Index + 1;
+         Filename := Stream_Files.Element (Stream_Index).Name;
+         Text := Stream_Files.Element (Stream_Index).Value;
+         End_Of_Input := False;
+      end if;
+   end Stream_Text_Read;
+
    procedure Stream_Write (Text : String) is
    begin
       U.Append (Stream_Output, Text);
@@ -611,6 +629,68 @@ package body Awklib_Suite is
          "streaming redirection exposes effective write mode");
    end Test_Streaming_Redirection;
 
+   procedure Test_Text_Streaming_Splits_Records
+     (T : in out AUnit.Test_Cases.Test_Case'Class)
+   is
+      pragma Unreferenced (T);
+      Empty     : I.Assignment_Vectors.Vector;
+      Message   : U.Unbounded_String;
+      Exit_Code : Integer;
+      Status    : I.Run_Status;
+   begin
+      Reset_Stream;
+      Stream_Files.Append (Pair ("f1", "alpha"));
+      Stream_Files.Append (Pair ("f1", " one" & LF & "beta two" & LF & "gam"));
+      Stream_Files.Append (Pair ("f2", "delta four" & LF));
+      I.Run_Text_Streaming
+        (Program_Source => "{ print FILENAME, FNR, NR, $0 }",
+         Assignments => Empty,
+         Environment => Empty,
+         Initial_Filename => "test",
+         Read_Text => Stream_Text_Read'Access,
+         Write_Output => Stream_Write'Access,
+         Write_Redirection => null,
+         Exit_Code => Exit_Code,
+         Status => Status,
+         Message => Message);
+      Assert (Status = I.Run_Ok, "text streaming run succeeds");
+      Assert
+        (U.To_String (Stream_Output) =
+         "f1 1 1 alpha one" & LF & "f1 2 2 beta two" & LF & "f1 3 3 gam" & LF &
+         "f2 1 4 delta four" & LF,
+         "awklib splits streamed text chunks into AWK records");
+   end Test_Text_Streaming_Splits_Records;
+
+   procedure Test_Text_Streaming_Uses_Begin_RS
+     (T : in out AUnit.Test_Cases.Test_Case'Class)
+   is
+      pragma Unreferenced (T);
+      Empty     : I.Assignment_Vectors.Vector;
+      Message   : U.Unbounded_String;
+      Exit_Code : Integer;
+      Status    : I.Run_Status;
+   begin
+      Reset_Stream;
+      Stream_Files.Append (Pair ("stdin", "a;b"));
+      Stream_Files.Append (Pair ("stdin", ";c"));
+      I.Run_Text_Streaming
+        (Program_Source => "BEGIN { RS = "";"" } { print NR, $0 }",
+         Assignments => Empty,
+         Environment => Empty,
+         Initial_Filename => "stdin",
+         Read_Text => Stream_Text_Read'Access,
+         Write_Output => Stream_Write'Access,
+         Write_Redirection => null,
+         Exit_Code => Exit_Code,
+         Status => Status,
+         Message => Message);
+      Assert (Status = I.Run_Ok, "text streaming with BEGIN RS succeeds");
+      Assert
+        (U.To_String (Stream_Output) =
+         "1 a" & LF & "2 b" & LF & "3 c" & LF,
+         "text streaming applies RS assigned in BEGIN");
+   end Test_Text_Streaming_Uses_Begin_RS;
+
    procedure Test_Printf_Flags (T : in out AUnit.Test_Cases.Test_Case'Class) is
       pragma Unreferenced (T);
    begin
@@ -919,6 +999,12 @@ package body Awklib_Suite is
       Register_Routine
         (T, Test_Streaming_Redirection'Access,
          "streaming redirection API");
+      Register_Routine
+        (T, Test_Text_Streaming_Splits_Records'Access,
+         "text streaming record splitting");
+      Register_Routine
+        (T, Test_Text_Streaming_Uses_Begin_RS'Access,
+         "text streaming BEGIN RS");
       Register_Routine (T, Test_Printf_Flags'Access, "printf flags, width, %o/%x/%c");
       Register_Routine (T, Test_Coercion'Access, "strnum coercion and substr clamping");
       Register_Routine (T, Test_Escapes'Access, "string escapes");

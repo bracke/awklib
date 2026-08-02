@@ -38,6 +38,9 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   callback and stdout/redirection writer callbacks. It avoids preloading main input,
   standard output, or redirected output and exposes effective append/truncate
   redirection semantics to the host.
+- `Awklib.Interpreter.Run_Text_Streaming`, a live-host API that accepts raw text chunks
+  and keeps AWK record splitting inside `awklib`, including records that span chunk
+  boundaries.
 
 ### Changed
 
@@ -57,8 +60,9 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   instead of overflowing the number formatter.
 - `getline` and `getline var` from the main input stream now advance the record cursor
   instead of being a no-op.
-- Main-input `getline` from `BEGIN` works when using `Run_Streaming`, because records
-  are pulled lazily from the caller-supplied reader.
+- Main-input `getline` from `BEGIN` works when using `Run_Streaming` or
+  `Run_Text_Streaming`, because records are pulled lazily from the caller-supplied
+  reader.
 - Custom `RS`, including single-character and paragraph mode, is honoured when splitting
   records.
 - Number formatting now matches C/awk: default output is `%.6g` (six significant

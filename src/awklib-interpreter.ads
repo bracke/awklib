@@ -34,6 +34,14 @@ package Awklib.Interpreter is
    type Output_Writer is access procedure (Text : String);
    --  Receives AWK standard output exactly as produced.
 
+   type Text_Reader is access procedure
+     (Filename     : out U.Unbounded_String;
+      Text         : out U.Unbounded_String;
+      End_Of_Input : out Boolean);
+   --  Supplies main-input text chunks. Filename is the AWK-visible FILENAME for
+   --  the returned chunk. Chunks for a file must be contiguous; awklib owns AWK
+   --  record splitting across chunk boundaries.
+
    type Redirection_Writer is access procedure
      (Name : String;
       Text : String;
@@ -102,5 +110,22 @@ package Awklib.Interpreter is
    --  This API does not preload main input, standard output, or redirected
    --  output. AWK source, auxiliary getline file contents supplied through
    --  Files, and interpreter state are still held in memory.
+
+   procedure Run_Text_Streaming
+     (Program_Source : String;
+      Assignments    : Assignment_Vectors.Vector;
+      Environment    : Assignment_Vectors.Vector;
+      Initial_Filename : String;
+      Read_Text      : not null Text_Reader;
+      Write_Output   : not null Output_Writer;
+      Write_Redirection : Redirection_Writer;
+      Exit_Code      : out Integer;
+      Status         : out Run_Status;
+      Message        : out U.Unbounded_String;
+      Files          : Assignment_Vectors.Vector := Assignment_Vectors.Empty_Vector;
+      Arguments      : String_Vectors.Vector := String_Vectors.Empty_Vector);
+   --  Run with caller-provided text chunks and live output callbacks. Unlike
+   --  Run_Streaming, the caller does not pre-split AWK records; record splitting
+   --  according to RS remains inside awklib.
 
 end Awklib.Interpreter;

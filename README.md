@@ -47,10 +47,12 @@ first-write order) — the library never touches the filesystem, so a front end 
 whether and where to write those files (the `cli/awk_run` example writes them to disk).
 
 For front ends that need live host integration, `Awklib.Interpreter.Run_Streaming`
-accepts a record-reader callback and stdout/redirection writer callbacks. It does not
-preload main input, standard output, or redirected output. The reader supplies one
-record and its AWK-visible filename at a time; the redirection callback receives the
-effective append/truncate mode for each write.
+accepts a record-reader callback and stdout/redirection writer callbacks. For front
+ends that have raw text chunks rather than pre-split records,
+`Awklib.Interpreter.Run_Text_Streaming` accepts a text-reader callback and keeps AWK
+record splitting inside `awklib`. These APIs do not preload main input, standard
+output, or redirected output. The redirection callback receives the effective
+append/truncate mode for each write.
 
 `Arguments` seeds `ARGV`/`ARGC` the way a command line would (`ARGV[0]` is `"awk"`,
 `ARGV[1..n]` the supplied strings, `ARGC` = n + 1); omit it and they default to the
@@ -77,10 +79,10 @@ multi-file input — see the [testsuite](tests/src/awklib_suite.adb) for worked 
   ASCII-only, and `printf` field width for `%c` counts bytes.
 - **`getline` from the main stream in `BEGIN` needs streaming input.** `getline`,
   `getline var`, and `while ((getline) > 0)` read the main input correctly inside main
-  rules for both APIs. `Run_Streaming` also supports main-input `getline` from `BEGIN`
-  because records are read lazily. The in-memory `Run` API still splits records after
-  `BEGIN` so an `RS` assigned in `BEGIN` takes effect. `getline < file` works everywhere;
-  `cmd | getline` is not implemented.
+  rules for all APIs. `Run_Streaming` and `Run_Text_Streaming` also support main-input
+  `getline` from `BEGIN` because records are read lazily. The in-memory `Run` API still
+  splits records after `BEGIN` so an `RS` assigned in `BEGIN` takes effect.
+  `getline < file` works everywhere; `cmd | getline` is not implemented.
 
 ## Architecture
 

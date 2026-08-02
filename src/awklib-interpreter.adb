@@ -45,6 +45,7 @@ package body Awklib.Interpreter is
       Input_Files    : Assignment_Vectors.Vector := Assignment_Vectors.Empty_Vector;
       Arguments      : String_Vectors.Vector := String_Vectors.Empty_Vector;
       Read_Record    : Record_Reader := null;
+      Read_Text      : Text_Reader := null;
       Write_Output   : Output_Writer := null;
       Write_Redirection : Redirection_Writer := null)
    is
@@ -124,6 +125,13 @@ package body Awklib.Interpreter is
       Pending_Stream_Record : Boolean := False;
       Pending_File : Unbounded_String;
       Pending_Record : Unbounded_String;
+      Text_Buffer : Unbounded_String;
+      Text_Buffer_File : Unbounded_String;
+      Text_Has_File : Boolean := False;
+      Text_End_Of_Input : Boolean := False;
+      Text_Pending_Chunk : Boolean := False;
+      Text_Pending_File : Unbounded_String;
+      Text_Pending_Text : Unbounded_String;
 
       --  getline < file: caller-provided file contents and per-file read cursors.
       package Content_Maps is new Ada.Containers.Indefinite_Hashed_Maps
@@ -548,13 +556,146 @@ package body Awklib.Interpreter is
          return Result;
       end Split_By_RS;
 
+      function Extract_Text_Record
+        (Name : out Unbounded_String;
+         Line : out Unbounded_String) return Boolean
+      is
+         RS_Str : constant String := Get_Str ("RS", "" & ASCII.LF);
+      begin
+         if Length (Text_Buffer) = 0 then
+            return False;
+         end if;
+
+         if RS_Str'Length = 0 then
+            declare
+               S : constant String := To_String (Text_Buffer);
+            begin
+               if S'Length >= 2 then
+                  for I in S'First .. S'Last - 1 loop
+                     if S (I) = ASCII.LF and then S (I + 1) = ASCII.LF then
+                        Name := Text_Buffer_File;
+                        if I > S'First then
+                           Line := To_Unbounded_String (S (S'First .. I - 1));
+                        else
+                           Line := Null_Unbounded_String;
+                        end if;
+                        Delete (Text_Buffer, 1, I - S'First + 2);
+                        return True;
+                     end if;
+                  end loop;
+               end if;
+            end;
+         else
+            declare
+               S   : constant String := To_String (Text_Buffer);
+               Sep : constant Character := RS_Str (RS_Str'First);
+            begin
+               for I in S'Range loop
+                  if S (I) = Sep then
+                     Name := Text_Buffer_File;
+                     if I > S'First then
+                        Line := To_Unbounded_String (S (S'First .. I - 1));
+                     else
+                        Line := Null_Unbounded_String;
+                     end if;
+                     Delete (Text_Buffer, 1, I - S'First + 1);
+                     return True;
+                  end if;
+               end loop;
+            end;
+         end if;
+
+         return False;
+      end Extract_Text_Record;
+
+      function Advance_Text_Record
+        (Name : out Unbounded_String;
+         Line : out Unbounded_String) return Boolean
+      is
+         Done       : Boolean;
+         Chunk_Name : Unbounded_String;
+         Chunk_Text : Unbounded_String;
+      begin
+         loop
+            if Extract_Text_Record (Name, Line) then
+               return True;
+            end if;
+
+            if Text_End_Of_Input then
+               if Length (Text_Buffer) > 0 then
+                  Name := Text_Buffer_File;
+                  Line := Text_Buffer;
+                  Text_Buffer := Null_Unbounded_String;
+                  return True;
+               end if;
+               return False;
+            end if;
+
+            if Text_Pending_Chunk then
+               Chunk_Name := Text_Pending_File;
+               Chunk_Text := Text_Pending_Text;
+               Text_Pending_Chunk := False;
+            else
+               Read_Text.all (Chunk_Name, Chunk_Text, Done);
+               if Done then
+                  Text_End_Of_Input := True;
+                  Chunk_Name := Null_Unbounded_String;
+                  Chunk_Text := Null_Unbounded_String;
+               end if;
+            end if;
+
+            if not Text_End_Of_Input then
+               if not Text_Has_File then
+                  Text_Buffer_File := Chunk_Name;
+                  Text_Has_File := True;
+                  Append (Text_Buffer, Chunk_Text);
+               elsif Chunk_Name = Text_Buffer_File then
+                  Append (Text_Buffer, Chunk_Text);
+               elsif Length (Text_Buffer) > 0 then
+                  Name := Text_Buffer_File;
+                  Line := Text_Buffer;
+                  Text_Buffer := Null_Unbounded_String;
+                  Text_Pending_File := Chunk_Name;
+                  Text_Pending_Text := Chunk_Text;
+                  Text_Pending_Chunk := True;
+                  return True;
+               else
+                  Text_Buffer_File := Chunk_Name;
+                  Append (Text_Buffer, Chunk_Text);
+               end if;
+            end if;
+         end loop;
+      end Advance_Text_Record;
+
       --  Advance the main input cursor by one record -- shared by the record loop
       --  and getline from the main stream, so NR/FNR stay consistent. Bumps NR/FNR
       --  and sets either $0 (Into_Field0) or a target variable. Returns False at
       --  the end of the current input.
       function Advance_Main_Record (Into_Field0 : Boolean; Var : A.Expr_Access) return Boolean is
       begin
-         if Read_Record = null then
+         if Read_Text /= null then
+            declare
+               Name : Unbounded_String;
+               Line : Unbounded_String;
+            begin
+               if Pending_Stream_Record then
+                  Name := Pending_File;
+                  Line := Pending_Record;
+                  Pending_Stream_Record := False;
+               elsif not Advance_Text_Record (Name, Line) then
+                  return False;
+               end if;
+
+               if not Stream_Has_File or else Name /= Stream_File then
+                  Stream_File := Name;
+                  Stream_Has_File := True;
+                  FNR_Count := 0;
+                  Set_Scalar ("FILENAME", V.To_Value (To_String (Stream_File)));
+               end if;
+
+               Pending_Record := Line;
+            end;
+         elsif Read_Record = null then
             if Main_Index >= Natural (Records.Length) then
                return False;
             end if;
@@ -593,7 +734,7 @@ package body Awklib.Interpreter is
          Set_Scalar ("FNR", V.To_Value (V.Number (FNR_Count)));
          declare
             Line : constant String :=
-              (if Read_Record = null
+              (if Read_Record = null and then Read_Text = null
                then To_String (Records.Element (Main_Index))
                else To_String (Pending_Record));
          begin
@@ -1503,6 +1644,13 @@ package body Awklib.Interpreter is
       Pending_Stream_Record := False;
       Pending_File := Null_Unbounded_String;
       Pending_Record := Null_Unbounded_String;
+      Text_Buffer := Null_Unbounded_String;
+      Text_Buffer_File := Null_Unbounded_String;
+      Text_Has_File := False;
+      Text_End_Of_Input := False;
+      Text_Pending_Chunk := False;
+      Text_Pending_File := Null_Unbounded_String;
+      Text_Pending_Text := Null_Unbounded_String;
       Out_Buf := Null_Unbounded_String;
       Return_Value := V.Uninitialized_Value;
       Exit_Code_V := 0;
@@ -1673,7 +1821,12 @@ package body Awklib.Interpreter is
                Line     : Unbounded_String;
             begin
                while not Done loop
-                  Read_Record.all (Name, Line, Done);
+                  if Read_Text /= null then
+                     Done := not Advance_Text_Record (Name, Line);
+                  else
+                     Read_Record.all (Name, Line, Done);
+                  end if;
+
                   if not Done and then To_String (Name) /= Old_Name then
                      Pending_File := Name;
                      Pending_Record := Line;
@@ -1701,7 +1854,7 @@ package body Awklib.Interpreter is
                end loop;
             end Process_Stream;
          begin
-            if Read_Record /= null then
+            if Read_Record /= null or else Read_Text /= null then
                Process_Stream;
             elsif Input_Files.Is_Empty then
                Process_File (Filename, Input);
@@ -1788,6 +1941,7 @@ package body Awklib.Interpreter is
          Input_Files => Input_Files,
          Arguments => Arguments,
          Read_Record => null,
+         Read_Text => null,
          Write_Output => null,
          Write_Redirection => null);
    end Run;
@@ -1825,8 +1979,47 @@ package body Awklib.Interpreter is
          Input_Files => Empty_Inputs,
          Arguments => Arguments,
          Read_Record => Read_Record,
+         Read_Text => null,
          Write_Output => Write_Output,
          Write_Redirection => Write_Redirection);
    end Run_Streaming;
+
+   procedure Run_Text_Streaming
+     (Program_Source : String;
+      Assignments    : Assignment_Vectors.Vector;
+      Environment    : Assignment_Vectors.Vector;
+      Initial_Filename : String;
+      Read_Text      : not null Text_Reader;
+      Write_Output   : not null Output_Writer;
+      Write_Redirection : Redirection_Writer;
+      Exit_Code      : out Integer;
+      Status         : out Run_Status;
+      Message        : out U.Unbounded_String;
+      Files          : Assignment_Vectors.Vector := Assignment_Vectors.Empty_Vector;
+      Arguments      : String_Vectors.Vector := String_Vectors.Empty_Vector)
+   is
+      Output       : U.Unbounded_String;
+      Output_Files : Assignment_Vectors.Vector;
+      Empty_Inputs : Assignment_Vectors.Vector;
+   begin
+      Run_Core
+        (Program_Source => Program_Source,
+         Input => "",
+         Assignments => Assignments,
+         Environment => Environment,
+         Filename => Initial_Filename,
+         Output => Output,
+         Exit_Code => Exit_Code,
+         Status => Status,
+         Message => Message,
+         Output_Files => Output_Files,
+         Files => Files,
+         Input_Files => Empty_Inputs,
+         Arguments => Arguments,
+         Read_Record => null,
+         Read_Text => Read_Text,
+         Write_Output => Write_Output,
+         Write_Redirection => Write_Redirection);
+   end Run_Text_Streaming;
 
 end Awklib.Interpreter;
