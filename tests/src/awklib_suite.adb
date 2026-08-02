@@ -1207,6 +1207,23 @@ package body Awklib_Suite is
               "printf %c width counts the first string code point");
    end Test_Utf8;
 
+   procedure Test_Malformed_Utf8 (T : in out AUnit.Test_Cases.Test_Case'Class) is
+      pragma Unreferenced (T);
+      Bad_Lead : constant String := [1 => Character'Val (16#C3#)];
+      Stray    : constant String := [1 => Character'Val (16#80#)];
+      Bad      : constant String := "a" & Bad_Lead & "b" & Stray & "c";
+   begin
+      Assert
+        (Awk
+           ("{ print length($0); print index($0, ""b""); print substr($0, 2, 1);"
+            & " n = split($0, a, """"); print n, a[4] }",
+            Bad & LF)
+         = "5" & LF & "3" & LF & Bad_Lead & LF & "5 " & Stray & LF,
+         "malformed UTF-8 bytes are preserved as single characters");
+      Assert (Awk ("{ gsub(/./, ""X""); print }", Bad & LF) = "XXXXX" & LF,
+              "regex over malformed UTF-8 is controlled and character-counted");
+   end Test_Malformed_Utf8;
+
    --  Regex matches by code point (via the UTF-8-mode regexp engine): ".",
    --  quantifiers, and classes span whole code points, not bytes.
    procedure Test_Utf8_Regex (T : in out AUnit.Test_Cases.Test_Case'Class) is
@@ -1319,6 +1336,7 @@ package body Awklib_Suite is
       Register_Routine (T, Test_Argv'Access, "ARGV/ARGC from Arguments or Input_Files");
       Register_Routine (T, Test_Arithmetic_Safety'Access, "div-by-zero errors; overflow prints inf/nan");
       Register_Routine (T, Test_Utf8'Access, "string functions are UTF-8 codepoint-aware");
+      Register_Routine (T, Test_Malformed_Utf8'Access, "malformed UTF-8 is controlled");
       Register_Routine (T, Test_Utf8_Regex'Access, "regex matches by UTF-8 code point");
    end Register_Tests;
 
