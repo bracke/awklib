@@ -173,7 +173,7 @@ package body Awklib.Format is
 
       --  Emit S into the field of the given width, honouring left-justify.
       procedure Emit_Field (S : String; Width : Integer; Left : Boolean) is
-         Pad : constant Integer := Width - S'Length;
+         Pad : constant Integer := Width - Awklib.Utf8.Count (S);
       begin
          if Left then
             Append (Out_Buf, S);

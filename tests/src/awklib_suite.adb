@@ -1199,6 +1199,12 @@ package body Awklib_Suite is
               "printf %c encodes a code point as UTF-8");
       Assert (Awk ("BEGIN { printf " & DQ & "%c" & DQ & ", 26085 }") = Ri,
               "printf %c encodes a multibyte code point");
+      Assert (Awk ("BEGIN { printf " & DQ & "[%3c][%-3c]" & DQ & ", 233, 26085 }")
+              = "[  " & Eacute & "][" & Ri & "  ]",
+              "printf %c width counts multibyte code points as one character");
+      Assert (Awk ("BEGIN { printf " & DQ & "[%3c]" & DQ & ", " & DQ & Eacute & "x" & DQ & " }")
+              = "[  " & Eacute & "]",
+              "printf %c width counts the first string code point");
    end Test_Utf8;
 
    --  Regex matches by code point (via the UTF-8-mode regexp engine): ".",
