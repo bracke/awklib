@@ -44,6 +44,7 @@ package body Awklib.Interpreter is
       Files          : Assignment_Vectors.Vector := Assignment_Vectors.Empty_Vector;
       Input_Files    : Assignment_Vectors.Vector := Assignment_Vectors.Empty_Vector;
       Arguments      : String_Vectors.Vector := String_Vectors.Empty_Vector;
+      Commands       : Assignment_Vectors.Vector := Assignment_Vectors.Empty_Vector;
       Read_Record    : Record_Reader := null;
       Read_Text      : Text_Reader := null;
       Runtime_Operands : Runtime_Operand_Vectors.Vector := Runtime_Operand_Vectors.Empty_Vector;
@@ -155,6 +156,8 @@ package body Awklib.Interpreter is
          Hash => Ada.Strings.Hash, Equivalent_Keys => "=");
       Getline_Content : Content_Maps.Map;
       Getline_Cursors : Cursor_Maps.Map;
+      Command_Content : Content_Maps.Map;
+      Command_Cursors : Cursor_Maps.Map;
 
       Out_Buf        : Unbounded_String;
       Truncated      : Str_Sets.Map;
@@ -888,6 +891,29 @@ package body Awklib.Interpreter is
          return 1;   --  caller reads C at the new Index
       end Getline_From_File;
 
+      --  command | getline. Returns 1 on a record, 0 at EOF, -1 if the caller
+      --  did not provide output for this command.
+      function Getline_From_Command (Name : String) return Integer is
+         C : Cursor_Access;
+      begin
+         if not Command_Content.Contains (Name) then
+            return -1;
+         end if;
+         if Command_Cursors.Contains (Name) then
+            C := Command_Cursors.Element (Name);
+         else
+            C := new File_Cursor;
+            C.Lines := Split_Lines (To_String (Command_Content.Element (Name)));
+            C.Loaded := True;
+            Command_Cursors.Insert (Name, C);
+         end if;
+         if C.Index >= Natural (C.Lines.Length) then
+            return 0;
+         end if;
+         C.Index := C.Index + 1;
+         return 1;
+      end Getline_From_Command;
+
       --  Lvalue get/set ----------------------------------------------------------
       function Get_Lvalue (Target : A.Expr_Access) return V.Value is
       begin
@@ -1186,7 +1212,22 @@ package body Awklib.Interpreter is
             when A.B_System =>
                return V.To_Value (V.Number (-1));   --  command execution unsupported
 
-            when A.B_Close | A.B_Fflush =>
+            when A.B_Close =>
+               if not Args.Is_Empty then
+                  declare
+                     Name : constant String := Eval_Str (Arg (1));
+                  begin
+                     if Getline_Cursors.Contains (Name) then
+                        Getline_Cursors.Delete (Name);
+                     end if;
+                     if Command_Cursors.Contains (Name) then
+                        Command_Cursors.Delete (Name);
+                     end if;
+                  end;
+               end if;
+               return V.To_Value (V.Number (0));
+
+            when A.B_Fflush =>
                return V.To_Value (V.Number (0));
          end case;
       end Eval_Builtin;
@@ -1436,8 +1477,24 @@ package body Awklib.Interpreter is
                      return V.To_Value (V.Number (0));
                   end if;
                else
-                  --  Command getline (`cmd | getline`) is not supported.
-                  return V.To_Value (V.Number (0));
+                  declare
+                     Name    : constant String := Eval_Str (E.GL_Arg);
+                     Outcome : constant Integer := Getline_From_Command (Name);
+                  begin
+                     if Outcome = 1 then
+                        declare
+                           C    : constant Cursor_Access := Command_Cursors.Element (Name);
+                           Line : constant String := To_String (C.Lines.Element (C.Index));
+                        begin
+                           if E.GL_Var /= null then
+                              Set_Lvalue (E.GL_Var, V.Make_Strnum (Line));
+                           else
+                              Set_Record (Line);
+                           end if;
+                        end;
+                     end if;
+                     return V.To_Value (V.Number (Outcome));
+                  end;
                end if;
          end case;
       end Eval;
@@ -1724,8 +1781,13 @@ package body Awklib.Interpreter is
       Truncated.Clear;
       Getline_Content.Clear;
       Getline_Cursors.Clear;
+      Command_Content.Clear;
+      Command_Cursors.Clear;
       for F of Files loop
          Getline_Content.Include (To_String (F.Name), F.Value);
+      end loop;
+      for C of Commands loop
+         Command_Content.Include (To_String (C.Name), C.Value);
       end loop;
       Field0 := Null_Unbounded_String;
       NF_Val := 0;
@@ -2077,7 +2139,8 @@ package body Awklib.Interpreter is
       Output_Files   : out Assignment_Vectors.Vector;
       Files          : Assignment_Vectors.Vector := Assignment_Vectors.Empty_Vector;
       Input_Files    : Assignment_Vectors.Vector := Assignment_Vectors.Empty_Vector;
-      Arguments      : String_Vectors.Vector := String_Vectors.Empty_Vector)
+      Arguments      : String_Vectors.Vector := String_Vectors.Empty_Vector;
+      Commands       : Assignment_Vectors.Vector := Assignment_Vectors.Empty_Vector)
    is
    begin
       Run_Core
@@ -2094,6 +2157,7 @@ package body Awklib.Interpreter is
          Files => Files,
          Input_Files => Input_Files,
          Arguments => Arguments,
+         Commands => Commands,
          Read_Record => null,
          Read_Text => null,
          Write_Output => null,
@@ -2114,7 +2178,8 @@ package body Awklib.Interpreter is
       Status         : out Run_Status;
       Message        : out U.Unbounded_String;
       Files          : Assignment_Vectors.Vector := Assignment_Vectors.Empty_Vector;
-      Arguments      : String_Vectors.Vector := String_Vectors.Empty_Vector)
+      Arguments      : String_Vectors.Vector := String_Vectors.Empty_Vector;
+      Commands       : Assignment_Vectors.Vector := Assignment_Vectors.Empty_Vector)
    is
       Output       : U.Unbounded_String;
       Output_Files : Assignment_Vectors.Vector;
@@ -2134,6 +2199,7 @@ package body Awklib.Interpreter is
          Files => Files,
          Input_Files => Empty_Inputs,
          Arguments => Arguments,
+         Commands => Commands,
          Read_Record => Read_Record,
          Read_Text => null,
          Write_Output => Write_Output,
@@ -2154,7 +2220,8 @@ package body Awklib.Interpreter is
       Status         : out Run_Status;
       Message        : out U.Unbounded_String;
       Files          : Assignment_Vectors.Vector := Assignment_Vectors.Empty_Vector;
-      Arguments      : String_Vectors.Vector := String_Vectors.Empty_Vector)
+      Arguments      : String_Vectors.Vector := String_Vectors.Empty_Vector;
+      Commands       : Assignment_Vectors.Vector := Assignment_Vectors.Empty_Vector)
    is
       Output       : U.Unbounded_String;
       Output_Files : Assignment_Vectors.Vector;
@@ -2174,6 +2241,7 @@ package body Awklib.Interpreter is
          Files => Files,
          Input_Files => Empty_Inputs,
          Arguments => Arguments,
+         Commands => Commands,
          Read_Record => null,
          Read_Text => Read_Text,
          Write_Output => Write_Output,
@@ -2194,7 +2262,8 @@ package body Awklib.Interpreter is
       Exit_Code      : out Integer;
       Status         : out Run_Status;
       Message        : out U.Unbounded_String;
-      Files          : Assignment_Vectors.Vector := Assignment_Vectors.Empty_Vector)
+      Files          : Assignment_Vectors.Vector := Assignment_Vectors.Empty_Vector;
+      Commands       : Assignment_Vectors.Vector := Assignment_Vectors.Empty_Vector)
    is
       Output       : U.Unbounded_String;
       Output_Files : Assignment_Vectors.Vector;
@@ -2215,6 +2284,7 @@ package body Awklib.Interpreter is
          Files => Files,
          Input_Files => Empty_Inputs,
          Arguments => Empty_Args,
+         Commands => Commands,
          Read_Record => null,
          Read_Text => null,
          Runtime_Operands => Operands,

@@ -35,6 +35,7 @@ package body Awklib.Parser is
       function Parse_Unary return Expr_Access;
       function Parse_Pow return Expr_Access;
       function Parse_Postfix return Expr_Access;
+      function Parse_Lvalue return Expr_Access;
       function Parse_Primary return Expr_Access;
       function Parse_Getline return Expr_Access;
       function Parse_Stmt return Stmt_Access;
@@ -151,6 +152,25 @@ package body Awklib.Parser is
          Left : constant Expr_Access := Parse_Ternary;
          A_Op : Assign_Op;
       begin
+         if At_Kind (L.Tok_Pipe) then
+            Advance;
+            Skip_Newlines;
+            if not At_Kind (L.Tok_Getline) then
+               Error ("expected 'getline' after '|'");
+               return Left;
+            end if;
+            Advance;
+            declare
+               Var : Expr_Access := null;
+            begin
+               if At_Kind (L.Tok_Name) or else At_Kind (L.Tok_Dollar) then
+                  Var := Parse_Lvalue;
+               end if;
+               return NA ((Kind => E_Getline, Line => Left.Line,
+                           GL_Var => Var, GL_Source => G_Command, GL_Arg => Left));
+            end;
+         end if;
+
          if Is_Lvalue (Left) then
             case Kind is
                when L.Tok_Assign     => A_Op := As_Set;

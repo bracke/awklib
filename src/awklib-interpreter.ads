@@ -82,10 +82,14 @@ package Awklib.Interpreter is
       Output_Files   : out Assignment_Vectors.Vector;
       Files          : Assignment_Vectors.Vector := Assignment_Vectors.Empty_Vector;
       Input_Files    : Assignment_Vectors.Vector := Assignment_Vectors.Empty_Vector;
-      Arguments      : String_Vectors.Vector := String_Vectors.Empty_Vector);
+      Arguments      : String_Vectors.Vector := String_Vectors.Empty_Vector;
+      Commands       : Assignment_Vectors.Vector := Assignment_Vectors.Empty_Vector);
    --  Files provides the content of named files for `getline < name`: each
    --  entry maps a filename to its full text. A getline from a name absent
    --  here returns -1 (open failure), as AWK would for a missing file.
+   --  Commands provides deterministic output for `command | getline`: each
+   --  entry maps a command string to its full stdout text. A command absent
+   --  here returns -1. awklib does not spawn processes itself.
    --
    --  Input_Files, when non-empty, supplies the main input as an ordered list
    --  of (FILENAME, content) pairs instead of the single Input string: FILENAME
@@ -124,7 +128,8 @@ package Awklib.Interpreter is
       Status         : out Run_Status;
       Message        : out U.Unbounded_String;
       Files          : Assignment_Vectors.Vector := Assignment_Vectors.Empty_Vector;
-      Arguments      : String_Vectors.Vector := String_Vectors.Empty_Vector);
+      Arguments      : String_Vectors.Vector := String_Vectors.Empty_Vector;
+      Commands       : Assignment_Vectors.Vector := Assignment_Vectors.Empty_Vector);
    --  Run with caller-provided streaming main input and live output callbacks.
    --  This API does not preload main input, standard output, or redirected
    --  output. AWK source, auxiliary getline file contents supplied through
@@ -143,7 +148,8 @@ package Awklib.Interpreter is
       Status         : out Run_Status;
       Message        : out U.Unbounded_String;
       Files          : Assignment_Vectors.Vector := Assignment_Vectors.Empty_Vector;
-      Arguments      : String_Vectors.Vector := String_Vectors.Empty_Vector);
+      Arguments      : String_Vectors.Vector := String_Vectors.Empty_Vector;
+      Commands       : Assignment_Vectors.Vector := Assignment_Vectors.Empty_Vector);
    --  Run with caller-provided text chunks and live output callbacks. Unlike
    --  Run_Streaming, the caller does not pre-split AWK records; record splitting
    --  according to RS remains inside awklib.
@@ -168,7 +174,8 @@ package Awklib.Interpreter is
       Exit_Code      : out Integer;
       Status         : out Run_Status;
       Message        : out U.Unbounded_String;
-      Files          : Assignment_Vectors.Vector := Assignment_Vectors.Empty_Vector);
+      Files          : Assignment_Vectors.Vector := Assignment_Vectors.Empty_Vector;
+      Commands       : Assignment_Vectors.Vector := Assignment_Vectors.Empty_Vector);
    --  Run with an AWK command-line operand sequence. Input operands are read
    --  lazily through Read_Text, and assignment operands are applied by awklib at
    --  their command-line positions: after BEGIN, before the following input, and

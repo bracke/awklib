@@ -165,6 +165,33 @@ package body Awklib_Suite is
       return U.To_String (Output);
    end Awk_With_File;
 
+   function Awk_With_Command
+     (Program, Command, Command_Output : String) return String
+   is
+      Empty     : I.Assignment_Vectors.Vector;
+      Written   : I.Assignment_Vectors.Vector;
+      Commands  : I.Assignment_Vectors.Vector;
+      Output    : U.Unbounded_String;
+      Message   : U.Unbounded_String;
+      Exit_Code : Integer;
+      Status    : I.Run_Status;
+   begin
+      Commands.Append (Pair (Command, Command_Output));
+      I.Run
+        (Program_Source => Program,
+         Input          => "",
+         Assignments    => Empty,
+         Environment    => Empty,
+         Filename       => "test",
+         Output         => Output,
+         Exit_Code      => Exit_Code,
+         Status         => Status,
+         Message        => Message,
+         Output_Files   => Written,
+         Commands       => Commands);
+      return U.To_String (Output);
+   end Awk_With_Command;
+
    --  Run PROGRAM over two named input files (for FILENAME/FNR/NR).
    function Awk_Two_Files (Program, N1, C1, N2, C2 : String) return String is
       Empty     : I.Assignment_Vectors.Vector;
@@ -562,6 +589,51 @@ package body Awklib_Suite is
            = "g:one" & LF & "g:two" & LF,
          "getline < file reads a named file");
    end Test_Getline_File;
+
+   procedure Test_Getline_Command (T : in out AUnit.Test_Cases.Test_Case'Class) is
+      pragma Unreferenced (T);
+      Empty     : I.Assignment_Vectors.Vector;
+      Written   : I.Assignment_Vectors.Vector;
+      Output    : U.Unbounded_String;
+      Message   : U.Unbounded_String;
+      Exit_Code : Integer;
+      Status    : I.Run_Status;
+   begin
+      Assert
+        (Awk_With_Command
+           ("BEGIN { ""cmd"" | getline l; print l }",
+            "cmd", "from command" & LF)
+         = "from command" & LF,
+         "command getline reads supplied command output");
+      Assert
+        (Awk_With_Command
+           ("BEGIN { while ((""cmd"" | getline l) > 0) print l }",
+            "cmd", "one" & LF & "two" & LF)
+         = "one" & LF & "two" & LF,
+         "command getline preserves a cursor per command");
+      Assert
+        (Awk_With_Command
+           ("BEGIN { ""cmd"" | getline l; print l; close(""cmd"");"
+            & " ""cmd"" | getline l; print l }",
+            "cmd", "again" & LF)
+         = "again" & LF & "again" & LF,
+         "close resets the command getline cursor");
+
+      I.Run
+        (Program_Source => "BEGIN { print ""missing"" | getline l }",
+         Input          => "",
+         Assignments    => Empty,
+         Environment    => Empty,
+         Filename       => "test",
+         Output         => Output,
+         Exit_Code      => Exit_Code,
+         Status         => Status,
+         Message        => Message,
+         Output_Files   => Written);
+      Assert (Status = I.Run_Ok, "missing command output is controlled");
+      Assert (U.To_String (Output) = "-1" & LF,
+              "missing command output returns getline error");
+   end Test_Getline_Command;
 
    procedure Test_Getline_From_Begin_Preloaded_Input
      (T : in out AUnit.Test_Cases.Test_Case'Class)
@@ -1171,6 +1243,7 @@ package body Awklib_Suite is
       Register_Routine (T, Test_Field_Splitting'Access, "FS variants");
       Register_Routine (T, Test_String_Functions'Access, "split/index/match/sub/tolower/sprintf");
       Register_Routine (T, Test_Getline_File'Access, "getline < file");
+      Register_Routine (T, Test_Getline_Command'Access, "command | getline");
       Register_Routine
         (T, Test_Getline_From_Begin_Preloaded_Input'Access,
          "getline from BEGIN over preloaded input");
