@@ -47,7 +47,8 @@ package body Awklib.Interpreter is
       Read_Record    : Record_Reader := null;
       Read_Text      : Text_Reader := null;
       Write_Output   : Output_Writer := null;
-      Write_Redirection : Redirection_Writer := null)
+      Write_Redirection : Redirection_Writer := null;
+      User_Data      : System.Address := System.Null_Address)
    is
       package LF_Math is new Ada.Numerics.Generic_Elementary_Functions (Long_Float);
 
@@ -636,7 +637,7 @@ package body Awklib.Interpreter is
                Chunk_Text := Text_Pending_Text;
                Text_Pending_Chunk := False;
             else
-               Read_Text.all (Chunk_Name, Chunk_Text, Done);
+               Read_Text.all (User_Data, Chunk_Name, Chunk_Text, Done);
                if Done then
                   Text_End_Of_Input := True;
                   Chunk_Name := Null_Unbounded_String;
@@ -711,7 +712,7 @@ package body Awklib.Interpreter is
                   Line := Pending_Record;
                   Pending_Stream_Record := False;
                else
-                  Read_Record.all (Name, Line, Done);
+                  Read_Record.all (User_Data, Name, Line, Done);
                   if Done then
                      return False;
                   end if;
@@ -1356,7 +1357,7 @@ package body Awklib.Interpreter is
                if Write_Output = null then
                   Append (Out_Buf, Text);
                else
-                  Write_Output.all (Text);
+                  Write_Output.all (User_Data, Text);
                end if;
             when A.R_File | A.R_Append =>
                declare
@@ -1385,7 +1386,7 @@ package body Awklib.Interpreter is
                         Truncated.Include (Name, True);
                      end if;
                      Write_Redirection.all
-                       (Name, Text, Append_Mode, not Append_Mode);
+                       (User_Data, Name, Text, Append_Mode, not Append_Mode);
                   end if;
                end;
             when A.R_Pipe =>
@@ -1824,7 +1825,7 @@ package body Awklib.Interpreter is
                   if Read_Text /= null then
                      Done := not Advance_Text_Record (Name, Line);
                   else
-                     Read_Record.all (Name, Line, Done);
+                     Read_Record.all (User_Data, Name, Line, Done);
                   end if;
 
                   if not Done and then To_String (Name) /= Old_Name then
@@ -1943,7 +1944,8 @@ package body Awklib.Interpreter is
          Read_Record => null,
          Read_Text => null,
          Write_Output => null,
-         Write_Redirection => null);
+         Write_Redirection => null,
+         User_Data => System.Null_Address);
    end Run;
 
    procedure Run_Streaming
@@ -1954,6 +1956,7 @@ package body Awklib.Interpreter is
       Read_Record    : not null Record_Reader;
       Write_Output   : not null Output_Writer;
       Write_Redirection : Redirection_Writer;
+      User_Data      : System.Address := System.Null_Address;
       Exit_Code      : out Integer;
       Status         : out Run_Status;
       Message        : out U.Unbounded_String;
@@ -1981,7 +1984,8 @@ package body Awklib.Interpreter is
          Read_Record => Read_Record,
          Read_Text => null,
          Write_Output => Write_Output,
-         Write_Redirection => Write_Redirection);
+         Write_Redirection => Write_Redirection,
+         User_Data => User_Data);
    end Run_Streaming;
 
    procedure Run_Text_Streaming
@@ -1992,6 +1996,7 @@ package body Awklib.Interpreter is
       Read_Text      : not null Text_Reader;
       Write_Output   : not null Output_Writer;
       Write_Redirection : Redirection_Writer;
+      User_Data      : System.Address := System.Null_Address;
       Exit_Code      : out Integer;
       Status         : out Run_Status;
       Message        : out U.Unbounded_String;
@@ -2019,7 +2024,8 @@ package body Awklib.Interpreter is
          Read_Record => null,
          Read_Text => Read_Text,
          Write_Output => Write_Output,
-         Write_Redirection => Write_Redirection);
+         Write_Redirection => Write_Redirection,
+         User_Data => User_Data);
    end Run_Text_Streaming;
 
 end Awklib.Interpreter;

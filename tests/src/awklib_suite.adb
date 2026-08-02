@@ -4,6 +4,7 @@ with AUnit.Test_Cases;
 
 with Ada.Directories;
 with Ada.Strings.Unbounded;
+with System;
 
 with Awklib.Interpreter;
 
@@ -24,10 +25,12 @@ package body Awklib_Suite is
    Stream_Redirect_Log : U.Unbounded_String;
 
    procedure Stream_Read
-     (Filename     : out U.Unbounded_String;
+     (User_Data    : System.Address;
+      Filename     : out U.Unbounded_String;
       Record_Text  : out U.Unbounded_String;
       End_Of_Input : out Boolean)
    is
+      pragma Unreferenced (User_Data);
    begin
       if Stream_Index >= Natural (Stream_Files.Length) then
          Filename := U.Null_Unbounded_String;
@@ -42,10 +45,12 @@ package body Awklib_Suite is
    end Stream_Read;
 
    procedure Stream_Text_Read
-     (Filename     : out U.Unbounded_String;
+     (User_Data    : System.Address;
+      Filename     : out U.Unbounded_String;
       Text         : out U.Unbounded_String;
       End_Of_Input : out Boolean)
    is
+      pragma Unreferenced (User_Data);
    begin
       if Stream_Index >= Natural (Stream_Files.Length) then
          Filename := U.Null_Unbounded_String;
@@ -59,17 +64,20 @@ package body Awklib_Suite is
       end if;
    end Stream_Text_Read;
 
-   procedure Stream_Write (Text : String) is
+   procedure Stream_Write (User_Data : System.Address; Text : String) is
+      pragma Unreferenced (User_Data);
    begin
       U.Append (Stream_Output, Text);
    end Stream_Write;
 
    procedure Stream_Redirect
-     (Name : String;
+     (User_Data : System.Address;
+      Name : String;
       Text : String;
       Append : Boolean;
       Truncate : Boolean)
    is
+      pragma Unreferenced (User_Data);
    begin
       U.Append (Stream_Redirect_Log, Name);
       U.Append (Stream_Redirect_Log, ":");

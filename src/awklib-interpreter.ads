@@ -1,5 +1,6 @@
 with Ada.Containers.Vectors;
 with Ada.Strings.Unbounded;
+with System;
 
 package Awklib.Interpreter is
    --  Runs an AWK program over an in-memory input and captures its standard
@@ -24,18 +25,22 @@ package Awklib.Interpreter is
    type Run_Status is (Run_Ok, Run_Error);
 
    type Record_Reader is access procedure
-     (Filename     : out U.Unbounded_String;
+     (User_Data    : System.Address;
+      Filename     : out U.Unbounded_String;
       Record_Text  : out U.Unbounded_String;
       End_Of_Input : out Boolean);
    --  Supplies one main-input record per call. Filename is the AWK-visible
    --  FILENAME for the returned record. Consecutive records with the same
    --  Filename belong to the same FNR sequence; a changed Filename resets FNR.
 
-   type Output_Writer is access procedure (Text : String);
+   type Output_Writer is access procedure
+     (User_Data : System.Address;
+      Text      : String);
    --  Receives AWK standard output exactly as produced.
 
    type Text_Reader is access procedure
-     (Filename     : out U.Unbounded_String;
+     (User_Data    : System.Address;
+      Filename     : out U.Unbounded_String;
       Text         : out U.Unbounded_String;
       End_Of_Input : out Boolean);
    --  Supplies main-input text chunks. Filename is the AWK-visible FILENAME for
@@ -43,7 +48,8 @@ package Awklib.Interpreter is
    --  record splitting across chunk boundaries.
 
    type Redirection_Writer is access procedure
-     (Name : String;
+     (User_Data : System.Address;
+      Name : String;
       Text : String;
       Append : Boolean;
       Truncate : Boolean);
@@ -101,6 +107,7 @@ package Awklib.Interpreter is
       Read_Record    : not null Record_Reader;
       Write_Output   : not null Output_Writer;
       Write_Redirection : Redirection_Writer;
+      User_Data      : System.Address := System.Null_Address;
       Exit_Code      : out Integer;
       Status         : out Run_Status;
       Message        : out U.Unbounded_String;
@@ -119,6 +126,7 @@ package Awklib.Interpreter is
       Read_Text      : not null Text_Reader;
       Write_Output   : not null Output_Writer;
       Write_Redirection : Redirection_Writer;
+      User_Data      : System.Address := System.Null_Address;
       Exit_Code      : out Integer;
       Status         : out Run_Status;
       Message        : out U.Unbounded_String;
