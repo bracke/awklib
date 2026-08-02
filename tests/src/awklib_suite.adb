@@ -563,6 +563,20 @@ package body Awklib_Suite is
          "getline < file reads a named file");
    end Test_Getline_File;
 
+   procedure Test_Getline_From_Begin_Preloaded_Input
+     (T : in out AUnit.Test_Cases.Test_Case'Class)
+   is
+      pragma Unreferenced (T);
+   begin
+      Assert
+        (Awk
+           ("BEGIN { getline x; print FILENAME, FNR, NR, x }"
+            & " { print ""main"", FNR, NR, $0 }",
+            "first" & LF & "second" & LF)
+         = "test 1 1 first" & LF & "main 2 2 second" & LF,
+         "BEGIN getline consumes the first preloaded main record");
+   end Test_Getline_From_Begin_Preloaded_Input;
+
    procedure Test_Multi_File (T : in out AUnit.Test_Cases.Test_Case'Class) is
       pragma Unreferenced (T);
    begin
@@ -632,6 +646,76 @@ package body Awklib_Suite is
          "stdin 1 1 first" & LF & "main second" & LF,
          "BEGIN getline consumes the first streaming record");
    end Test_Streaming_Getline_From_Begin;
+
+   procedure Test_Text_Streaming_Getline_From_Begin
+     (T : in out AUnit.Test_Cases.Test_Case'Class)
+   is
+      pragma Unreferenced (T);
+      Empty     : I.Assignment_Vectors.Vector;
+      Message   : U.Unbounded_String;
+      Exit_Code : Integer;
+      Status    : I.Run_Status;
+   begin
+      Reset_Stream;
+      Stream_Files.Append (Pair ("stdin", "first" & LF & "second" & LF));
+      I.Run_Text_Streaming
+        (Program_Source =>
+           "BEGIN { getline x; print FILENAME, FNR, NR, x }"
+           & " { print ""main"", FNR, NR, $0 }",
+         Assignments => Empty,
+         Environment => Empty,
+         Initial_Filename => "stdin",
+         Read_Text => Stream_Text_Read'Access,
+         Write_Output => Stream_Write'Access,
+         Write_Redirection => null,
+         Exit_Code => Exit_Code,
+         Status => Status,
+         Message => Message);
+      Assert (Status = I.Run_Ok, "text streaming getline from BEGIN succeeds");
+      Assert
+        (U.To_String (Stream_Output) =
+         "stdin 1 1 first" & LF & "main 2 2 second" & LF,
+         "BEGIN getline shares the text-stream cursor");
+   end Test_Text_Streaming_Getline_From_Begin;
+
+   procedure Test_Operand_Text_Streaming_Getline_From_Begin
+     (T : in out AUnit.Test_Cases.Test_Case'Class)
+   is
+      pragma Unreferenced (T);
+      Empty     : I.Assignment_Vectors.Vector;
+      Operands  : I.Runtime_Operand_Vectors.Vector;
+      Message   : U.Unbounded_String;
+      Exit_Code : Integer;
+      Status    : I.Run_Status;
+   begin
+      Reset_Stream;
+      Stream_Files.Append (Pair ("stdin", "first" & LF & "second" & LF));
+      Operands.Append
+        (I.Runtime_Operand'
+           (Kind => I.Input_Operand,
+            Text => U.To_Unbounded_String ("stdin"),
+            Name => U.Null_Unbounded_String,
+            Value => U.Null_Unbounded_String));
+      I.Run_Text_Streaming_With_Operands
+        (Program_Source =>
+           "BEGIN { getline x; print FILENAME, FNR, NR, x }"
+           & " { print ""main"", FNR, NR, $0 }",
+         Assignments => Empty,
+         Environment => Empty,
+         Initial_Filename => "",
+         Operands => Operands,
+         Read_Text => Stream_Operand_Text_Read'Access,
+         Write_Output => Stream_Write'Access,
+         Write_Redirection => null,
+         Exit_Code => Exit_Code,
+         Status => Status,
+         Message => Message);
+      Assert (Status = I.Run_Ok, "operand text streaming getline from BEGIN succeeds");
+      Assert
+        (U.To_String (Stream_Output) =
+         "stdin 1 1 first" & LF & "main 2 2 second" & LF,
+         "BEGIN getline shares the operand text-stream cursor");
+   end Test_Operand_Text_Streaming_Getline_From_Begin;
 
    procedure Test_Streaming_Redirection
      (T : in out AUnit.Test_Cases.Test_Case'Class)
@@ -1087,11 +1171,20 @@ package body Awklib_Suite is
       Register_Routine (T, Test_Field_Splitting'Access, "FS variants");
       Register_Routine (T, Test_String_Functions'Access, "split/index/match/sub/tolower/sprintf");
       Register_Routine (T, Test_Getline_File'Access, "getline < file");
+      Register_Routine
+        (T, Test_Getline_From_Begin_Preloaded_Input'Access,
+         "getline from BEGIN over preloaded input");
       Register_Routine (T, Test_Multi_File'Access, "multi-file FILENAME/FNR/NR");
       Register_Routine (T, Test_Streaming_Input'Access, "streaming input API");
       Register_Routine
         (T, Test_Streaming_Getline_From_Begin'Access,
          "streaming getline from BEGIN");
+      Register_Routine
+        (T, Test_Text_Streaming_Getline_From_Begin'Access,
+         "text streaming getline from BEGIN");
+      Register_Routine
+        (T, Test_Operand_Text_Streaming_Getline_From_Begin'Access,
+         "operand text streaming getline from BEGIN");
       Register_Routine
         (T, Test_Streaming_Redirection'Access,
          "streaming redirection API");

@@ -136,6 +136,9 @@ package body Awklib.Interpreter is
       Text_Pending_File : Unbounded_String;
       Text_Pending_Text : Unbounded_String;
       Current_Runtime_Operand : Natural := 0;
+      Preloaded_Input_Initialized : Boolean := False;
+      Preloaded_Input_Index : Natural := 0;
+      Preloaded_Input_Name : Unbounded_String := To_Unbounded_String (Filename);
 
       --  getline < file: caller-provided file contents and per-file read cursors.
       package Content_Maps is new Ada.Containers.Indefinite_Hashed_Maps
@@ -560,6 +563,81 @@ package body Awklib.Interpreter is
          return Result;
       end Split_By_RS;
 
+      procedure Reset_Text_Input is
+      begin
+         Stream_Has_File := False;
+         Pending_Stream_Record := False;
+         Pending_File := Null_Unbounded_String;
+         Pending_Record := Null_Unbounded_String;
+         Text_Buffer := Null_Unbounded_String;
+         Text_Buffer_File := Null_Unbounded_String;
+         Text_Has_File := False;
+         Text_End_Of_Input := False;
+         Text_Pending_Chunk := False;
+         Text_Pending_File := Null_Unbounded_String;
+         Text_Pending_Text := Null_Unbounded_String;
+      end Reset_Text_Input;
+
+      function First_Input_Operand return Natural is
+      begin
+         for Index in 1 .. Natural (Runtime_Operands.Length) loop
+            if Runtime_Operands.Element (Index).Kind = Input_Operand then
+               return Index;
+            end if;
+         end loop;
+         return 0;
+      end First_Input_Operand;
+
+      procedure Start_Operand_Text_Input (Index : Positive) is
+         Operand : constant Runtime_Operand := Runtime_Operands.Element (Index);
+      begin
+         if Current_Runtime_Operand /= Index then
+            Current_Runtime_Operand := Index;
+            Reset_Text_Input;
+            FNR_Count := 0;
+            Stream_File := Operand.Text;
+         end if;
+      end Start_Operand_Text_Input;
+
+      procedure Initialize_First_Preloaded_Input is
+      begin
+         if Preloaded_Input_Initialized
+           or else Read_Record /= null
+           or else Read_Text /= null
+           or else Read_Operand_Text /= null
+         then
+            return;
+         end if;
+
+         if Input_Files.Is_Empty then
+            Preloaded_Input_Name := To_Unbounded_String (Filename);
+            Records := Split_By_RS (Input);
+            Preloaded_Input_Index := 0;
+         else
+            declare
+               F : constant Var_Assignment := Input_Files.Element (1);
+            begin
+               Preloaded_Input_Name := F.Name;
+               Records := Split_By_RS (To_String (F.Value));
+               Preloaded_Input_Index := 1;
+            end;
+         end if;
+
+         Main_Index := 0;
+         FNR_Count := 0;
+         Preloaded_Input_Initialized := True;
+      end Initialize_First_Preloaded_Input;
+
+      procedure Initialize_Main_Input_For_Begin is
+         First_Operand : constant Natural := First_Input_Operand;
+      begin
+         if Read_Operand_Text /= null then
+            if First_Operand > 0 then
+               Start_Operand_Text_Input (First_Operand);
+            end if;
+         end if;
+      end Initialize_Main_Input_For_Begin;
+
       function Extract_Text_Record
         (Name : out Unbounded_String;
          Line : out Unbounded_String) return Boolean
@@ -706,10 +784,16 @@ package body Awklib.Interpreter is
                Pending_Record := Line;
             end;
          elsif Read_Record = null then
+            if not Preloaded_Input_Initialized then
+               Initialize_First_Preloaded_Input;
+            end if;
             if Main_Index >= Natural (Records.Length) then
                return False;
             end if;
             Main_Index := Main_Index + 1;
+            if FNR_Count = 0 then
+               Set_Scalar ("FILENAME", V.To_Value (To_String (Preloaded_Input_Name)));
+            end if;
          else
             declare
                Done : Boolean;
@@ -1743,6 +1827,8 @@ package body Awklib.Interpreter is
          end if;
       end loop;
 
+      Initialize_Main_Input_For_Begin;
+
       --  BEGIN rules.
       for R of Prog.Rules loop
          exit when Exiting or else Runtime_Failed;
@@ -1814,16 +1900,23 @@ package body Awklib.Interpreter is
                end loop;
             end Process_Current_Record;
 
-            procedure Process_File (FName : String; Content : String) is
+            procedure Process_File
+              (FName : String;
+               Content : String;
+               Reuse_Current : Boolean := False)
+            is
                Do_Nextfile : Boolean := False;
             begin
-               Set_Scalar ("FILENAME", V.To_Value (FName));
-               --  Load this file as the main record stream; FNR restarts here,
-               --  NR_Count continues across files. Advance_Main_Record (shared
-               --  with getline) reads each record and bumps NR/FNR.
-               Records := Split_By_RS (Content);
-               Main_Index := 0;
-               FNR_Count := 0;
+               if not Reuse_Current then
+                  Set_Scalar ("FILENAME", V.To_Value (FName));
+                  Preloaded_Input_Name := To_Unbounded_String (FName);
+                  --  Load this file as the main record stream; FNR restarts
+                  --  here, NR_Count continues across files. Advance_Main_Record
+                  --  (shared with getline) reads each record and bumps NR/FNR.
+                  Records := Split_By_RS (Content);
+                  Main_Index := 0;
+                  FNR_Count := 0;
+               end if;
                while not (Exiting or else Runtime_Failed or else Do_Nextfile)
                  and then Advance_Main_Record (Into_Field0 => True, Var => null)
                loop
@@ -1856,10 +1949,12 @@ package body Awklib.Interpreter is
             procedure Process_Stream is
                Do_Nextfile : Boolean := False;
             begin
-               Set_Scalar ("FILENAME", V.To_Value (Filename));
-               FNR_Count := 0;
-               Stream_File := To_Unbounded_String (Filename);
-               Stream_Has_File := False;
+               if NR_Count = 0 then
+                  Set_Scalar ("FILENAME", V.To_Value (Filename));
+                  FNR_Count := 0;
+                  Stream_File := To_Unbounded_String (Filename);
+                  Stream_Has_File := False;
+               end if;
                while not (Exiting or else Runtime_Failed)
                  and then Advance_Main_Record (Into_Field0 => True, Var => null)
                loop
@@ -1870,21 +1965,6 @@ package body Awklib.Interpreter is
                   end if;
                end loop;
             end Process_Stream;
-
-            procedure Reset_Text_Input is
-            begin
-               Stream_Has_File := False;
-               Pending_Stream_Record := False;
-               Pending_File := Null_Unbounded_String;
-               Pending_Record := Null_Unbounded_String;
-               Text_Buffer := Null_Unbounded_String;
-               Text_Buffer_File := Null_Unbounded_String;
-               Text_Has_File := False;
-               Text_End_Of_Input := False;
-               Text_Pending_Chunk := False;
-               Text_Pending_File := Null_Unbounded_String;
-               Text_Pending_Text := Null_Unbounded_String;
-            end Reset_Text_Input;
 
             procedure Process_Operand_Stream is
                Do_Nextfile : Boolean := False;
@@ -1901,11 +1981,7 @@ package body Awklib.Interpreter is
                              (To_String (Operand.Name),
                               V.Make_Strnum (To_String (Operand.Value)));
                         when Input_Operand =>
-                           Current_Runtime_Operand := Index;
-                           Reset_Text_Input;
-                           Set_Scalar ("FILENAME", V.To_Value (To_String (Operand.Text)));
-                           FNR_Count := 0;
-                           Stream_File := Operand.Text;
+                           Start_Operand_Text_Input (Index);
                            Do_Nextfile := False;
                            while not (Exiting or else Runtime_Failed or else Do_Nextfile)
                              and then Advance_Main_Record (Into_Field0 => True, Var => null)
@@ -1923,11 +1999,23 @@ package body Awklib.Interpreter is
             elsif Read_Record /= null or else Read_Text /= null then
                Process_Stream;
             elsif Input_Files.Is_Empty then
-               Process_File (Filename, Input);
+               Process_File
+                 (Filename, Input,
+                  Reuse_Current =>
+                    Preloaded_Input_Initialized
+                    and then Preloaded_Input_Index = 0);
             else
-               for F of Input_Files loop
+               for Index in 1 .. Natural (Input_Files.Length) loop
                   exit when Exiting or else Runtime_Failed;
-                  Process_File (To_String (F.Name), To_String (F.Value));
+                  declare
+                     F : constant Var_Assignment := Input_Files.Element (Index);
+                  begin
+                     Process_File
+                       (To_String (F.Name), To_String (F.Value),
+                        Reuse_Current =>
+                          Preloaded_Input_Initialized
+                          and then Preloaded_Input_Index = Index);
+                  end;
                end loop;
             end if;
          end;
