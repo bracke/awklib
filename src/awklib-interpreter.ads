@@ -69,6 +69,15 @@ package Awklib.Interpreter is
    --  the first effective ">" to a target in a run. Append is True for ">>" and
    --  for later writes to an already-open target.
 
+   type Command_Reader is access procedure
+     (User_Data : System.Address;
+      Command   : String;
+      Text      : out U.Unbounded_String;
+      Available : out Boolean);
+   --  Supplies stdout text for `command | getline` after the command expression
+   --  has been evaluated. awklib does not spawn processes itself; embedders that
+   --  want live command execution provide it here.
+
    procedure Run
      (Program_Source : String;
       Input          : String;
@@ -83,13 +92,16 @@ package Awklib.Interpreter is
       Files          : Assignment_Vectors.Vector := Assignment_Vectors.Empty_Vector;
       Input_Files    : Assignment_Vectors.Vector := Assignment_Vectors.Empty_Vector;
       Arguments      : String_Vectors.Vector := String_Vectors.Empty_Vector;
-      Commands       : Assignment_Vectors.Vector := Assignment_Vectors.Empty_Vector);
+      Commands       : Assignment_Vectors.Vector := Assignment_Vectors.Empty_Vector;
+      Read_Command   : Command_Reader := null);
    --  Files provides the content of named files for `getline < name`: each
    --  entry maps a filename to its full text. A getline from a name absent
    --  here returns -1 (open failure), as AWK would for a missing file.
    --  Commands provides deterministic output for `command | getline`: each
-   --  entry maps a command string to its full stdout text. A command absent
-   --  here returns -1. awklib does not spawn processes itself.
+   --  entry maps a command string to its full stdout text. Read_Command, when
+   --  non-null, is called for command strings absent from Commands. If neither
+   --  source provides the command, getline returns -1. awklib does not spawn
+   --  processes itself.
    --
    --  Input_Files, when non-empty, supplies the main input as an ordered list
    --  of (FILENAME, content) pairs instead of the single Input string: FILENAME
@@ -129,7 +141,8 @@ package Awklib.Interpreter is
       Message        : out U.Unbounded_String;
       Files          : Assignment_Vectors.Vector := Assignment_Vectors.Empty_Vector;
       Arguments      : String_Vectors.Vector := String_Vectors.Empty_Vector;
-      Commands       : Assignment_Vectors.Vector := Assignment_Vectors.Empty_Vector);
+      Commands       : Assignment_Vectors.Vector := Assignment_Vectors.Empty_Vector;
+      Read_Command   : Command_Reader := null);
    --  Run with caller-provided streaming main input and live output callbacks.
    --  This API does not preload main input, standard output, or redirected
    --  output. AWK source, auxiliary getline file contents supplied through
@@ -149,7 +162,8 @@ package Awklib.Interpreter is
       Message        : out U.Unbounded_String;
       Files          : Assignment_Vectors.Vector := Assignment_Vectors.Empty_Vector;
       Arguments      : String_Vectors.Vector := String_Vectors.Empty_Vector;
-      Commands       : Assignment_Vectors.Vector := Assignment_Vectors.Empty_Vector);
+      Commands       : Assignment_Vectors.Vector := Assignment_Vectors.Empty_Vector;
+      Read_Command   : Command_Reader := null);
    --  Run with caller-provided text chunks and live output callbacks. Unlike
    --  Run_Streaming, the caller does not pre-split AWK records; record splitting
    --  according to RS remains inside awklib.
@@ -175,7 +189,8 @@ package Awklib.Interpreter is
       Status         : out Run_Status;
       Message        : out U.Unbounded_String;
       Files          : Assignment_Vectors.Vector := Assignment_Vectors.Empty_Vector;
-      Commands       : Assignment_Vectors.Vector := Assignment_Vectors.Empty_Vector);
+      Commands       : Assignment_Vectors.Vector := Assignment_Vectors.Empty_Vector;
+      Read_Command   : Command_Reader := null);
    --  Run with an AWK command-line operand sequence. Input operands are read
    --  lazily through Read_Text, and assignment operands are applied by awklib at
    --  their command-line positions: after BEGIN, before the following input, and

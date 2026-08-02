@@ -109,6 +109,23 @@ package body Awklib_Suite is
       U.Append (Stream_Redirect_Log, Text);
    end Stream_Redirect;
 
+   procedure Command_Read
+     (User_Data : System.Address;
+      Command   : String;
+      Text      : out U.Unbounded_String;
+      Available : out Boolean)
+   is
+      pragma Unreferenced (User_Data);
+   begin
+      if Command = "dynamic 7" then
+         Text := U.To_Unbounded_String ("callback" & LF);
+         Available := True;
+      else
+         Text := U.Null_Unbounded_String;
+         Available := False;
+      end if;
+   end Command_Read;
+
    procedure Reset_Stream is
    begin
       Stream_Files.Clear;
@@ -633,6 +650,23 @@ package body Awklib_Suite is
       Assert (Status = I.Run_Ok, "missing command output is controlled");
       Assert (U.To_String (Output) = "-1" & LF,
               "missing command output returns getline error");
+
+      I.Run
+        (Program_Source =>
+           "BEGIN { n = 7; (""dynamic "" n) | getline l; print l }",
+         Input          => "",
+         Assignments    => Empty,
+         Environment    => Empty,
+         Filename       => "test",
+         Output         => Output,
+         Exit_Code      => Exit_Code,
+         Status         => Status,
+         Message        => Message,
+         Output_Files   => Written,
+         Read_Command   => Command_Read'Access);
+      Assert (Status = I.Run_Ok, "command getline callback is controlled");
+      Assert (U.To_String (Output) = "callback" & LF,
+              "command getline callback receives the evaluated command");
    end Test_Getline_Command;
 
    procedure Test_Getline_From_Begin_Preloaded_Input

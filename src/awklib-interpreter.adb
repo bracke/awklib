@@ -45,6 +45,7 @@ package body Awklib.Interpreter is
       Input_Files    : Assignment_Vectors.Vector := Assignment_Vectors.Empty_Vector;
       Arguments      : String_Vectors.Vector := String_Vectors.Empty_Vector;
       Commands       : Assignment_Vectors.Vector := Assignment_Vectors.Empty_Vector;
+      Read_Command   : Command_Reader := null;
       Read_Record    : Record_Reader := null;
       Read_Text      : Text_Reader := null;
       Runtime_Operands : Runtime_Operand_Vectors.Vector := Runtime_Operand_Vectors.Empty_Vector;
@@ -897,7 +898,21 @@ package body Awklib.Interpreter is
          C : Cursor_Access;
       begin
          if not Command_Content.Contains (Name) then
-            return -1;
+            if Read_Command /= null then
+               declare
+                  Content   : Unbounded_String;
+                  Available : Boolean;
+               begin
+                  Read_Command.all (User_Data, Name, Content, Available);
+                  if Available then
+                     Command_Content.Include (Name, Content);
+                  else
+                     return -1;
+                  end if;
+               end;
+            else
+               return -1;
+            end if;
          end if;
          if Command_Cursors.Contains (Name) then
             C := Command_Cursors.Element (Name);
@@ -2140,7 +2155,8 @@ package body Awklib.Interpreter is
       Files          : Assignment_Vectors.Vector := Assignment_Vectors.Empty_Vector;
       Input_Files    : Assignment_Vectors.Vector := Assignment_Vectors.Empty_Vector;
       Arguments      : String_Vectors.Vector := String_Vectors.Empty_Vector;
-      Commands       : Assignment_Vectors.Vector := Assignment_Vectors.Empty_Vector)
+      Commands       : Assignment_Vectors.Vector := Assignment_Vectors.Empty_Vector;
+      Read_Command   : Command_Reader := null)
    is
    begin
       Run_Core
@@ -2158,6 +2174,7 @@ package body Awklib.Interpreter is
          Input_Files => Input_Files,
          Arguments => Arguments,
          Commands => Commands,
+         Read_Command => Read_Command,
          Read_Record => null,
          Read_Text => null,
          Write_Output => null,
@@ -2179,7 +2196,8 @@ package body Awklib.Interpreter is
       Message        : out U.Unbounded_String;
       Files          : Assignment_Vectors.Vector := Assignment_Vectors.Empty_Vector;
       Arguments      : String_Vectors.Vector := String_Vectors.Empty_Vector;
-      Commands       : Assignment_Vectors.Vector := Assignment_Vectors.Empty_Vector)
+      Commands       : Assignment_Vectors.Vector := Assignment_Vectors.Empty_Vector;
+      Read_Command   : Command_Reader := null)
    is
       Output       : U.Unbounded_String;
       Output_Files : Assignment_Vectors.Vector;
@@ -2200,6 +2218,7 @@ package body Awklib.Interpreter is
          Input_Files => Empty_Inputs,
          Arguments => Arguments,
          Commands => Commands,
+         Read_Command => Read_Command,
          Read_Record => Read_Record,
          Read_Text => null,
          Write_Output => Write_Output,
@@ -2221,7 +2240,8 @@ package body Awklib.Interpreter is
       Message        : out U.Unbounded_String;
       Files          : Assignment_Vectors.Vector := Assignment_Vectors.Empty_Vector;
       Arguments      : String_Vectors.Vector := String_Vectors.Empty_Vector;
-      Commands       : Assignment_Vectors.Vector := Assignment_Vectors.Empty_Vector)
+      Commands       : Assignment_Vectors.Vector := Assignment_Vectors.Empty_Vector;
+      Read_Command   : Command_Reader := null)
    is
       Output       : U.Unbounded_String;
       Output_Files : Assignment_Vectors.Vector;
@@ -2242,6 +2262,7 @@ package body Awklib.Interpreter is
          Input_Files => Empty_Inputs,
          Arguments => Arguments,
          Commands => Commands,
+         Read_Command => Read_Command,
          Read_Record => null,
          Read_Text => Read_Text,
          Write_Output => Write_Output,
@@ -2263,7 +2284,8 @@ package body Awklib.Interpreter is
       Status         : out Run_Status;
       Message        : out U.Unbounded_String;
       Files          : Assignment_Vectors.Vector := Assignment_Vectors.Empty_Vector;
-      Commands       : Assignment_Vectors.Vector := Assignment_Vectors.Empty_Vector)
+      Commands       : Assignment_Vectors.Vector := Assignment_Vectors.Empty_Vector;
+      Read_Command   : Command_Reader := null)
    is
       Output       : U.Unbounded_String;
       Output_Files : Assignment_Vectors.Vector;
@@ -2285,6 +2307,7 @@ package body Awklib.Interpreter is
          Input_Files => Empty_Inputs,
          Arguments => Empty_Args,
          Commands => Commands,
+         Read_Command => Read_Command,
          Read_Record => null,
          Read_Text => null,
          Runtime_Operands => Operands,
