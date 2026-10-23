@@ -101,9 +101,12 @@ package body Awklib.Regex is
          declare
             Translated : constant String := Translate_Escapes (Pattern);
          begin
-            Comp := new Compiled_Pattern'
-              (Search   => Regexp.Compile (Translated, Character_Mode => Regexp.UTF_8_Mode),
-               Anchored => Regexp.Compile ("^(?:" & Translated & ")$", Character_Mode => Regexp.UTF_8_Mode));
+            --  Allocated, then each expression compiled into it in turn: an
+            --  aggregate of the two was built whole on the stack first, two
+            --  compiled expressions, 294 KB.
+            Comp := new Compiled_Pattern;
+            Comp.Search := Regexp.Compile (Translated, Character_Mode => Regexp.UTF_8_Mode);
+            Comp.Anchored := Regexp.Compile ("^(?:" & Translated & ")$", Character_Mode => Regexp.UTF_8_Mode);
          end;
          Cache_Store.Store (Pattern, Comp);
       end if;

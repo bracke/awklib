@@ -54,6 +54,10 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- A pattern's two compiled expressions are compiled into its cache entry one at a
+  time: built as an aggregate first, both were on the stack at once, a 294 KB
+  frame -- past an eighth of a task's default stack. Now 147 KB.
+
 - Division and modulo by zero no longer crash the host: they are reported as a graceful
   `Run_Error` ("division by zero"), and a top-level handler on `Run` converts any other
   unexpected exception into a `Run_Error` so an embedded interpreter can never abort its
