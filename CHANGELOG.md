@@ -54,6 +54,10 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- A file another task of the program has open is read and written all the same: GNAT's default
+  open form refuses a file the program already has open (`Use_Error: reopening shared file`);
+  every Open and Create of a file now says `shared=no`.
+
 - A pattern's two compiled expressions are compiled into its cache entry one at a
   time: built as an aggregate first, both were on the stack at once, a 294 KB
   frame -- past an eighth of a task's default stack. Now 147 KB.

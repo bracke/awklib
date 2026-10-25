@@ -849,7 +849,7 @@ package body Awklib.Interpreter is
          F : Ada.Text_IO.File_Type;
       begin
          Content := Null_Unbounded_String;
-         Ada.Text_IO.Open (F, Ada.Text_IO.In_File, Path);
+         Ada.Text_IO.Open (F, Ada.Text_IO.In_File, Path, Form => "shared=no");
          while not Ada.Text_IO.End_Of_File (F) loop
             Append (Content, Ada.Text_IO.Get_Line (F));
             Append (Content, ASCII.LF);

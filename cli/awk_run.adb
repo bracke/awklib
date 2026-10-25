@@ -29,7 +29,7 @@ procedure Awk_Run is
       Data : Ada.Streams.Stream_Element_Array (1 .. 65536);
       Last : Ada.Streams.Stream_Element_Offset;
    begin
-      Open (F, In_File, Path);
+      Open (F, In_File, Path, Form => "shared=no");
       while not End_Of_File (F) loop
          Read (F, Data, Last);
          for K in 1 .. Last loop
@@ -127,7 +127,7 @@ begin
          F   : File_Type;
          Buf : Ada.Streams.Stream_Element_Array (1 .. Content'Length);
       begin
-         Create (F, Out_File, Path);
+         Create (F, Out_File, Path, Form => "shared=no");
          for K in Content'Range loop
             Buf (Ada.Streams.Stream_Element_Offset (K - Content'First + 1)) :=
               Ada.Streams.Stream_Element (Character'Pos (Content (K)));
